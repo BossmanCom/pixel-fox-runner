@@ -52,13 +52,8 @@ function sfxWater()   { playBeep(140, 0.12, 'triangle', 0.07); setTimeout(() => 
 
 function playStartJingle() {
   const notes = [
-    {f: 523, d: 0.12},
-    {f: 659, d: 0.12},
-    {f: 784, d: 0.12},
-    {f: 1047, d: 0.18},
-    {f: 784, d: 0.1},
-    {f: 880, d: 0.15},
-    {f: 1047, d: 0.25}
+    {f: 523, d: 0.12}, {f: 659, d: 0.12}, {f: 784, d: 0.12},
+    {f: 1047, d: 0.18}, {f: 784, d: 0.1}, {f: 880, d: 0.15}, {f: 1047, d: 0.25}
   ];
   let t = 0;
   notes.forEach(n => {
@@ -447,27 +442,42 @@ function update() {
   player.vy += GRAVITY;
   player.y += player.vy;
 
-  const midX = player.x + player.w / 2;
-  const groundY = getGroundY(midX);
+  const midX = player.x + player.w * 0.5;
+  const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
-  // STRICT: only stand on ground that is the same height or lower
-  // Any upward difference requires a jump
-  if (player.y >= groundY && groundY >= player.y - 3) {
-    // Same level or tiny drop → allow standing
-    player.y = groundY;
-    player.vy = 0;
-    player.onGround = true;
+  // Also check a bit ahead to detect rising walls
+  const groundAhead = getGroundY(player.x + player.w + 2);
 
-    if (under && under.type === 'water' && invuln <= 0) {
-      lives--;
-      invuln = 50;
-      spawnWaterSplash(player.x + 8, player.y - 4);
-      sfxWater();
-      if (lives <= 0) gameOver();
+  // === SOLID WALL LOGIC ===
+  // Only allow the player to stand on ground that is the SAME height or LOWER.
+  // Any rise is treated as a wall you must jump over.
+
+  if (player.vy >= 0) { // only when falling or still
+    // Can only land if the ground is not higher than current feet
+    if (player.y >= groundUnder && groundUnder >= player.y - 1.5) {
+      // Same level or drop → land
+      player.y = groundUnder;
+      player.vy = 0;
+      player.onGround = true;
+
+      if (under && under.type === 'water' && invuln <= 0) {
+        lives--;
+        invuln = 50;
+        spawnWaterSplash(player.x + 8, player.y - 4);
+        sfxWater();
+        if (lives <= 0) gameOver();
+      }
+    } else {
+      player.onGround = false;
     }
   } else {
-    // Higher ground or in air → not on ground
+    // Going up (jumping) → never snap to ground
+    player.onGround = false;
+  }
+
+  // Extra safety: if somehow on ground but the ground under us is now higher, kick us off
+  if (player.onGround && groundUnder < player.y - 2) {
     player.onGround = false;
   }
 
