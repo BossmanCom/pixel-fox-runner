@@ -80,6 +80,7 @@ const player = {
   h: 24,
   vy: 0,
   onGround: true,
+  lockedGroundY: BASE_GROUND,   // the height she is currently anchored to
   animFrame: 0,
   animTimer: 0
 };
@@ -413,6 +414,7 @@ function startGame() {
   player.y = BASE_GROUND;
   player.vy = 0;
   player.onGround = true;
+  player.lockedGroundY = BASE_GROUND;
   initTerrain();
   playStartJingle();
 }
@@ -446,20 +448,41 @@ function update() {
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
-  // Also check a bit ahead to detect rising walls
-  const groundAhead = getGroundY(player.x + player.w + 2);
+  // ========== ANCHORED GROUND LOGIC ==========
+  // The player is locked to lockedGroundY.
+  // She can only go UP by jumping and landing on a higher surface.
+  // Rising terrain is treated as a wall.
 
-  // === SOLID WALL LOGIC ===
-  // Only allow the player to stand on ground that is the SAME height or LOWER.
-  // Any rise is treated as a wall you must jump over.
+  if (player.onGround) {
+    // Currently standing
+    if (groundUnder > player.lockedGroundY + 1) {
+      // Terrain rose under us → this is a wall. Stay at locked height.
+      // (we just don't update lockedGroundY or snap up)
+      player.y = player.lockedGroundY;
+      player.vy = 0;
+    } else {
+      // Same height or lower → follow the ground
+      player.y = groundUnder;
+      player.lockedGroundY = groundUnder;
+      player.vy = 0;
 
-  if (player.vy >= 0) { // only when falling or still
-    // Can only land if the ground is not higher than current feet
-    if (player.y >= groundUnder && groundUnder >= player.y - 1.5) {
-      // Same level or drop → land
+      // Water check
+      if (under && under.type === 'water' && invuln <= 0) {
+        lives--;
+        invuln = 50;
+        spawnWaterSplash(player.x + 8, player.y - 4);
+        sfxWater();
+        if (lives <= 0) gameOver();
+      }
+    }
+  } else {
+    // In the air
+    if (player.vy >= 0 && player.y >= groundUnder) {
+      // Landing
       player.y = groundUnder;
       player.vy = 0;
       player.onGround = true;
+      player.lockedGroundY = groundUnder;   // new anchor point
 
       if (under && under.type === 'water' && invuln <= 0) {
         lives--;
@@ -468,16 +491,11 @@ function update() {
         sfxWater();
         if (lives <= 0) gameOver();
       }
-    } else {
-      player.onGround = false;
     }
-  } else {
-    // Going up (jumping) → never snap to ground
-    player.onGround = false;
   }
 
-  // Extra safety: if somehow on ground but the ground under us is now higher, kick us off
-  if (player.onGround && groundUnder < player.y - 2) {
+  // Safety: if we somehow walked off into empty space
+  if (player.onGround && groundUnder > player.lockedGroundY + 40) {
     player.onGround = false;
   }
 
