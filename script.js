@@ -17,7 +17,6 @@ const JUMP_FORCE = -10.5;
 const START_SPEED = 2.8;
 const MAX_SPEED = 9.2;
 const SPEED_INCREASE = 0.00032;
-const MAX_STEP = 14; // max height you can walk up without jumping
 
 let canvasScale = 1;
 
@@ -51,15 +50,14 @@ function sfxHeart()   { playBeep(660, 0.08, 'sine', 0.07); setTimeout(() => play
 function sfxGameOver(){ playBeep(300, 0.2, 'sawtooth', 0.08); setTimeout(() => playBeep(200, 0.3, 'sawtooth', 0.07), 150); setTimeout(() => playBeep(120, 0.4, 'sawtooth', 0.06), 320); }
 function sfxWater()   { playBeep(140, 0.12, 'triangle', 0.07); setTimeout(() => playBeep(90, 0.18, 'sawtooth', 0.05), 50); }
 
-// Simple start jingle
 function playStartJingle() {
   const notes = [
-    {f: 523, d: 0.12}, // C
-    {f: 659, d: 0.12}, // E
-    {f: 784, d: 0.12}, // G
-    {f: 1047, d: 0.18}, // C high
+    {f: 523, d: 0.12},
+    {f: 659, d: 0.12},
+    {f: 784, d: 0.12},
+    {f: 1047, d: 0.18},
     {f: 784, d: 0.1},
-    {f: 880, d: 0.15}, // A
+    {f: 880, d: 0.15},
     {f: 1047, d: 0.25}
   ];
   let t = 0;
@@ -303,8 +301,6 @@ function drawWorld() {
 function spawnObstacle() {
   const aheadX = GAME_WIDTH + 30;
   const t = getTerrainUnder(aheadX);
-
-  // Never spawn anything on water
   if (t && t.type === 'water') return;
 
   const groundY = getGroundY(aheadX);
@@ -314,7 +310,6 @@ function spawnObstacle() {
   if (type < 0.40) {
     o = { type: 'crate', x: aheadX, y: groundY - 20, w: 20, h: 20 };
   } else if (type < 0.70) {
-    // Spikes only on solid ground
     o = { type: 'spikes', x: aheadX, y: groundY - 12, w: 24, h: 12 };
   } else {
     o = { type: 'bird', x: aheadX, y: groundY - 55 - Math.random() * 50, w: 18, h: 12, bob: Math.random() * 6 };
@@ -456,38 +451,24 @@ function update() {
   const groundY = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
-  // Look a little ahead for step detection
-  const aheadGroundY = getGroundY(player.x + player.w + 6);
+  // STRICT: only stand on ground that is the same height or lower
+  // Any upward difference requires a jump
+  if (player.y >= groundY && groundY >= player.y - 3) {
+    // Same level or tiny drop → allow standing
+    player.y = groundY;
+    player.vy = 0;
+    player.onGround = true;
 
-  if (player.y >= groundY) {
-    // Only allow standing if the step up is small enough
-    const stepUp = groundY - player.y; // negative when going up
-
-    if (groundY <= player.y + MAX_STEP) {
-      // Allowed to stand / step up
-      player.y = groundY;
-      player.vy = 0;
-      player.onGround = true;
-
-      if (under && under.type === 'water' && invuln <= 0) {
-        lives--;
-        invuln = 50;
-        spawnWaterSplash(player.x + 8, player.y - 4);
-        sfxWater();
-        if (lives <= 0) gameOver();
-      }
-    } else {
-      // Too high to step onto — treat as solid wall
-      player.onGround = false;
+    if (under && under.type === 'water' && invuln <= 0) {
+      lives--;
+      invuln = 50;
+      spawnWaterSplash(player.x + 8, player.y - 4);
+      sfxWater();
+      if (lives <= 0) gameOver();
     }
   } else {
+    // Higher ground or in air → not on ground
     player.onGround = false;
-  }
-
-  // Extra wall check: if a tall platform is right in front while on ground
-  if (player.onGround && aheadGroundY < player.y - MAX_STEP) {
-    // There's a tall wall ahead — we just let gravity/jump handle it
-    // (player will fall if they walk off, or need to jump)
   }
 
   if (player.y > GAME_HEIGHT + 40) {
