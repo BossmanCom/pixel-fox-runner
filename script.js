@@ -81,6 +81,7 @@ const player = {
   vy: 0,
   onGround: true,
   lockedGroundY: BASE_GROUND,
+  stuckOnWall: false,
   animFrame: 0,
   animTimer: 0
 };
@@ -100,9 +101,10 @@ function onJump() {
   initAudio();
   if (state === 'start') { startGame(); return; }
   if (state === 'gameover') { restartGame(); return; }
-  if (state === 'playing' && player.onGround) {
+  if (state === 'playing' && (player.onGround || player.stuckOnWall)) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
+    player.stuckOnWall = false;   // clear the wall stop
     sfxJump();
   }
 }
@@ -415,6 +417,7 @@ function startGame() {
   player.vy = 0;
   player.onGround = true;
   player.lockedGroundY = BASE_GROUND;
+  player.stuckOnWall = false;
   initTerrain();
   playStartJingle();
 }
@@ -433,7 +436,13 @@ function update() {
   frameCount++;
   if (state !== 'playing') return;
 
+  // Base speed from distance
   speed = Math.min(MAX_SPEED, START_SPEED + distance * SPEED_INCREASE);
+
+  // If stuck on a wall, force complete stop until she jumps
+  if (player.stuckOnWall) {
+    speed = 0;
+  }
 
   generateMoreTerrain();
 
@@ -448,34 +457,28 @@ function update() {
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
-  // ========== SOLID TERRAIN + WALL COLLISION ==========
-  // How much higher is the new ground than where she was standing?
+  // ========== SOLID TERRAIN + WALL STOP RULE ==========
+  // Any rise bigger than 5px acts as a wall that stops her until she jumps
   const heightDiff = player.lockedGroundY - groundUnder; // positive = rising wall
 
   if (player.y >= groundUnder - 1) {
     // She is touching or inside the surface
 
-    if (heightDiff > 18 && player.onGround) {
-      // Tall rising wall she just ran into
-      // Treat it like smacking a solid crate
-      if (invuln <= 0) {
-        lives--;
-        invuln = 55;
-        spawnHitParticles(player.x + 8, player.y - 12);
-        sfxHit();
-        if (lives <= 0) gameOver();
-      }
-      // Bounce her up onto the wall instead of letting her clip through
-      player.y = groundUnder;
-      player.vy = -4.2;          // little bounce so it feels like she hit it
-      player.onGround = false;
-      player.lockedGroundY = groundUnder;
-    } else {
-      // Normal landing or small step
+    if (heightDiff > 5) {
+      // Rising wall → stop the world until she jumps
       player.y = groundUnder;
       player.vy = 0;
       player.onGround = true;
       player.lockedGroundY = groundUnder;
+      player.stuckOnWall = true;
+      speed = 0;
+    } else {
+      // Normal landing or tiny step
+      player.y = groundUnder;
+      player.vy = 0;
+      player.onGround = true;
+      player.lockedGroundY = groundUnder;
+      player.stuckOnWall = false;
 
       if (under && under.type === 'water' && invuln <= 0) {
         lives--;
