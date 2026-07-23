@@ -2,7 +2,7 @@
 // Pixel Fox Runner - Infinite Runner
 // Pure HTML5 Canvas + vanilla JS
 // 8-bit style fox girl (Ani) as the player
-// Now with terrain height, platforms & water hazards
+// Terrain with clear hills, platforms & water hazards
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
@@ -14,7 +14,7 @@ const GAME_WIDTH = 480;
 const GAME_HEIGHT = 270;
 const BASE_GROUND = 220;
 const GRAVITY = 0.55;
-const JUMP_FORCE = -10.2;
+const JUMP_FORCE = -10.5;
 const START_SPEED = 2.8;
 const MAX_SPEED = 9.2;
 const SPEED_INCREASE = 0.00032;
@@ -179,50 +179,51 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   px(x + 9*s, y + 23*s, 3*s, 1*s, C.white);
 }
 
-// -------------------- TERRAIN SYSTEM --------------------
+// -------------------- TERRAIN SYSTEM (more aggressive) --------------------
 function initTerrain() {
   terrain = [];
-  // Start with a long safe flat section
-  terrain.push({ x: -50, w: 320, top: BASE_GROUND, type: 'ground' });
+  // Much shorter safe start so you hit variation quickly
+  terrain.push({ x: -40, w: 180, top: BASE_GROUND, type: 'ground' });
   generateMoreTerrain();
 }
 
 function generateMoreTerrain() {
-  // Keep generating until we have enough terrain ahead of the screen
   while (true) {
     const last = terrain[terrain.length - 1];
-    if (last.x + last.w > GAME_WIDTH + 400) break;
+    if (last.x + last.w > GAME_WIDTH + 450) break;
 
     const nextX = last.x + last.w;
     const roll = Math.random();
 
-    // ~18% chance of a water pit (crate-sized gap)
-    if (roll < 0.18 && last.type === 'ground') {
-      const waterW = 20 + Math.floor(Math.random() * 10); // 20-29 px (box sized)
-      terrain.push({ x: nextX, w: waterW, top: BASE_GROUND + 8, type: 'water' });
+    // Higher chance of water pits (crate-sized)
+    if (roll < 0.22 && last.type === 'ground') {
+      const waterW = 22 + Math.floor(Math.random() * 12); // 22-33px
+      terrain.push({ x: nextX, w: waterW, top: BASE_GROUND + 6, type: 'water' });
       continue;
     }
 
-    // Height change
+    // Much more aggressive height changes
     let newTop = last.top;
     const heightRoll = Math.random();
 
-    if (heightRoll < 0.28) {
-      // Rise (hill / platform)
-      newTop = Math.max(140, last.top - (16 + Math.floor(Math.random() * 28)));
-    } else if (heightRoll < 0.50) {
-      // Drop
-      newTop = Math.min(BASE_GROUND, last.top + (12 + Math.floor(Math.random() * 24)));
+    if (heightRoll < 0.38) {
+      // Strong rise (clear platform / hill)
+      newTop = Math.max(130, last.top - (22 + Math.floor(Math.random() * 36)));
+    } else if (heightRoll < 0.62) {
+      // Drop down
+      newTop = Math.min(BASE_GROUND, last.top + (18 + Math.floor(Math.random() * 30)));
     }
-    // else stay same height
+    // else keep similar height
 
-    const segW = 50 + Math.floor(Math.random() * 90);
+    // Make sure we don't go too crazy
+    newTop = Math.max(125, Math.min(BASE_GROUND, newTop));
+
+    const segW = 40 + Math.floor(Math.random() * 80);
     terrain.push({ x: nextX, w: segW, top: newTop, type: 'ground' });
   }
 }
 
 function getTerrainUnder(px) {
-  // Find the terrain segment currently under this x position
   for (let i = 0; i < terrain.length; i++) {
     const t = terrain[i];
     if (px >= t.x && px < t.x + t.w) return t;
@@ -232,8 +233,8 @@ function getTerrainUnder(px) {
 
 function getGroundY(px) {
   const t = getTerrainUnder(px);
-  if (!t) return BASE_GROUND + 80; // deep fall
-  if (t.type === 'water') return t.top; // water surface
+  if (!t) return BASE_GROUND + 90;
+  if (t.type === 'water') return t.top;
   return t.top;
 }
 
@@ -243,7 +244,7 @@ function drawWorld() {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-  // Far hills (parallax)
+  // Far hills
   ctx.fillStyle = '#16213e';
   for (let i = -1; i < 7; i++) {
     const bx = ((i * 130) - (bgFar % 130));
@@ -267,34 +268,34 @@ function drawWorld() {
     ctx.fill();
   }
 
-  // Draw terrain segments
+  // Draw terrain
   for (const t of terrain) {
     if (t.x + t.w < -10 || t.x > GAME_WIDTH + 10) continue;
 
     if (t.type === 'ground') {
       // Ground body
       ctx.fillStyle = '#2d1b0e';
-      ctx.fillRect(t.x, t.top, t.w, GAME_HEIGHT - t.top + 10);
+      ctx.fillRect(t.x, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
 
       // Grass top
       ctx.fillStyle = '#40916c';
-      ctx.fillRect(t.x, t.top, t.w, 5);
+      ctx.fillRect(t.x, t.top, t.w + 1, 6);
 
-      // Little dirt detail
+      // Dirt details
       ctx.fillStyle = '#3d2914';
-      for (let gx = t.x + 6; gx < t.x + t.w - 4; gx += 18) {
-        px(gx, t.top + 7, 5, 3, '#3d2914');
+      for (let gx = t.x + 8; gx < t.x + t.w - 4; gx += 16) {
+        px(gx, t.top + 8, 5, 3, '#3d2914');
       }
     } else {
-      // Water pit
+      // Water
       ctx.fillStyle = '#0a3d62';
-      ctx.fillRect(t.x, t.top, t.w, GAME_HEIGHT - t.top + 10);
+      ctx.fillRect(t.x, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
 
-      // Water surface shimmer
+      // Surface
       ctx.fillStyle = '#1e90ff';
-      ctx.fillRect(t.x, t.top, t.w, 4);
+      ctx.fillRect(t.x, t.top, t.w + 1, 5);
       ctx.fillStyle = '#4fc3f7';
-      for (let wx = t.x + 3; wx < t.x + t.w; wx += 8) {
+      for (let wx = t.x + 2; wx < t.x + t.w; wx += 7) {
         px(wx, t.top + 1, 3, 2, '#4fc3f7');
       }
     }
@@ -303,11 +304,8 @@ function drawWorld() {
 
 // -------------------- SPAWN --------------------
 function spawnObstacle() {
-  // Try to place on current upcoming ground
   const aheadX = GAME_WIDTH + 30;
   const groundY = getGroundY(aheadX);
-
-  // Don't spawn on water
   const t = getTerrainUnder(aheadX);
   if (t && t.type === 'water') return;
 
@@ -332,7 +330,7 @@ function spawnCollectible() {
   collectibles.push({
     type,
     x: aheadX,
-    y: groundY - 30 - Math.random() * 55,
+    y: groundY - 28 - Math.random() * 60,
     w: 12,
     h: 12,
     collected: false
@@ -458,12 +456,10 @@ function update() {
 
   speed = Math.min(MAX_SPEED, START_SPEED + distance * SPEED_INCREASE);
 
-  // Generate more terrain as needed
   generateMoreTerrain();
 
-  // Scroll everything
+  // Scroll terrain
   for (const t of terrain) t.x -= speed;
-  // Clean old terrain
   while (terrain.length > 0 && terrain[0].x + terrain[0].w < -60) {
     terrain.shift();
   }
@@ -472,7 +468,6 @@ function update() {
   player.vy += GRAVITY;
   player.y += player.vy;
 
-  // Terrain collision
   const groundY = getGroundY(player.x + player.w / 2);
   const under = getTerrainUnder(player.x + player.w / 2);
 
@@ -481,7 +476,6 @@ function update() {
     player.vy = 0;
     player.onGround = true;
 
-    // Water damage
     if (under && under.type === 'water' && invuln <= 0) {
       lives--;
       invuln = 50;
@@ -493,8 +487,7 @@ function update() {
     player.onGround = false;
   }
 
-  // Fall death (too deep)
-  if (player.y > GAME_HEIGHT + 30) {
+  if (player.y > GAME_HEIGHT + 40) {
     lives = 0;
     gameOver();
   }
