@@ -453,40 +453,42 @@ function update() {
   player.vy += GRAVITY;
   player.y += player.vy;
 
+  // Use RIGHT EDGE of the hitbox for wall detection (front of the fox)
+  // This catches the wall the moment it touches her instead of waiting for the center
+  const frontX = player.x + player.w - 1;
+  const groundAtFront = getGroundY(frontX);
+  const heightDiffFront = player.lockedGroundY - groundAtFront;
+
+  // Still use center for normal standing / landing feel
   const midX = player.x + player.w * 0.5;
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
   // ========== SOLID TERRAIN + WALL STOP RULE ==========
-  // Any rise bigger than 5px acts as a wall that stops her until she jumps
-  const heightDiff = player.lockedGroundY - groundUnder; // positive = rising wall
+  // Check the front of her body first so she stops the instant the wall touches her
 
-  if (player.y >= groundUnder - 1) {
-    // She is touching or inside the surface
+  if (heightDiffFront > 5 && player.onGround) {
+    // Rising wall just touched the front of her hitbox → STOP
+    player.y = groundAtFront;
+    player.vy = 0;
+    player.onGround = true;
+    player.lockedGroundY = groundAtFront;
+    player.stuckOnWall = true;
+    speed = 0;
+  } else if (player.y >= groundUnder - 1) {
+    // Normal landing or tiny step (using center)
+    player.y = groundUnder;
+    player.vy = 0;
+    player.onGround = true;
+    player.lockedGroundY = groundUnder;
+    player.stuckOnWall = false;
 
-    if (heightDiff > 5) {
-      // Rising wall → stop the world until she jumps
-      player.y = groundUnder;
-      player.vy = 0;
-      player.onGround = true;
-      player.lockedGroundY = groundUnder;
-      player.stuckOnWall = true;
-      speed = 0;
-    } else {
-      // Normal landing or tiny step
-      player.y = groundUnder;
-      player.vy = 0;
-      player.onGround = true;
-      player.lockedGroundY = groundUnder;
-      player.stuckOnWall = false;
-
-      if (under && under.type === 'water' && invuln <= 0) {
-        lives--;
-        invuln = 50;
-        spawnWaterSplash(player.x + 8, player.y - 4);
-        sfxWater();
-        if (lives <= 0) gameOver();
-      }
+    if (under && under.type === 'water' && invuln <= 0) {
+      lives--;
+      invuln = 50;
+      spawnWaterSplash(player.x + 8, player.y - 4);
+      sfxWater();
+      if (lives <= 0) gameOver();
     }
   } else {
     // Still in the air
