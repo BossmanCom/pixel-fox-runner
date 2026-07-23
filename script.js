@@ -1,5 +1,5 @@
 // ============================================================
-// Pixel Fox Runner - Manual Platformer
+// Pixel Fox Runner - Manual Platformer + Soft Stages
 // Pure HTML5 Canvas + vanilla JS
 // 8-bit style fox girl (Ani)
 // ============================================================
@@ -70,6 +70,8 @@ let coins = 0;
 let lives = 3;
 let invuln = 0;
 let frameCount = 0;
+let lastObstacleX = 0;
+let lastCollectibleX = 0;
 
 // -------------------- PLAYER --------------------
 const player = {
@@ -80,17 +82,13 @@ const player = {
   vx: 0,
   vy: 0,
   onGround: true,
-  facing: 1, // 1 = right, -1 = left
+  facing: 1,
   animFrame: 0,
   animTimer: 0
 };
 
 // -------------------- INPUT --------------------
-const keys = {
-  left: false,
-  right: false,
-  jump: false
-};
+const keys = { left: false, right: false };
 
 function onJump() {
   initAudio();
@@ -117,7 +115,6 @@ window.addEventListener('keyup', e => {
   if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
 });
 
-// Simple touch controls: left half = left, right half = right, but also allow jump on any tap when grounded
 let touchLeft = false;
 let touchRight = false;
 
@@ -125,24 +122,13 @@ canvas.addEventListener('pointerdown', e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const tx = (e.clientX - rect.left) / canvasScale;
-  if (tx < GAME_WIDTH * 0.4) {
-    touchLeft = true;
-  } else if (tx > GAME_WIDTH * 0.6) {
-    touchRight = true;
-  } else {
-    onJump();
-  }
+  if (tx < GAME_WIDTH * 0.4) touchLeft = true;
+  else if (tx > GAME_WIDTH * 0.6) touchRight = true;
+  else onJump();
 });
 
-canvas.addEventListener('pointerup', e => {
-  touchLeft = false;
-  touchRight = false;
-});
-
-canvas.addEventListener('pointercancel', e => {
-  touchLeft = false;
-  touchRight = false;
-});
+canvas.addEventListener('pointerup', () => { touchLeft = false; touchRight = false; });
+canvas.addEventListener('pointercancel', () => { touchLeft = false; touchRight = false; });
 
 // -------------------- RESIZE --------------------
 function resize() {
@@ -173,7 +159,6 @@ function drawFox(pxX, pxY, frame, scale = 1, facing = 1) {
   const x = Math.floor(pxX);
   const y = Math.floor(pxY);
 
-  // Simple flip by drawing mirrored when facing left
   ctx.save();
   if (facing < 0) {
     ctx.translate(x + 16 * s, 0);
@@ -251,6 +236,24 @@ function drawFox(pxX, pxY, frame, scale = 1, facing = 1) {
   ctx.restore();
 }
 
+// -------------------- STAGES (soft) --------------------
+function getStage() {
+  return Math.floor(score / 450);
+}
+
+const STAGE_PALETTES = [
+  { sky: '#1a1a2e', mountain: '#16213e', treeTrunk: '#3d2914', treeLeaf: '#1b4332', ground: '#2d1b0e', grass: '#40916c' },
+  { sky: '#1a1528', mountain: '#1e1635', treeTrunk: '#3a2518', treeLeaf: '#1a3a2e', ground: '#2a180c', grass: '#3a8a5c' },
+  { sky: '#15122a', mountain: '#1a1230', treeTrunk: '#352010', treeLeaf: '#16352a', ground: '#26150a', grass: '#357a50' },
+  { sky: '#120f22', mountain: '#160e28', treeTrunk: '#301c0c', treeLeaf: '#122f25', ground: '#221208', grass: '#2f6a45' },
+  { sky: '#0e0c1c', mountain: '#120a22', treeTrunk: '#2a1808', treeLeaf: '#0e2820', ground: '#1e0f06', grass: '#285a3a' }
+];
+
+function getPalette() {
+  const s = Math.min(getStage(), STAGE_PALETTES.length - 1);
+  return STAGE_PALETTES[s];
+}
+
 // -------------------- TERRAIN --------------------
 let terrain = [];
 
@@ -309,7 +312,7 @@ let collectibles = [];
 let particles = [];
 
 function spawnObstacle() {
-  const aheadX = cameraX + GAME_WIDTH + 40;
+  const aheadX = cameraX + GAME_WIDTH + 50 + Math.random() * 40;
   const t = getTerrainUnder(aheadX);
   if (t && t.type === 'water') return;
 
@@ -317,18 +320,19 @@ function spawnObstacle() {
   const type = Math.random();
   let o;
 
-  if (type < 0.40) {
+  if (type < 0.38) {
     o = { type: 'crate', x: aheadX, y: groundY - 20, w: 20, h: 20 };
-  } else if (type < 0.70) {
+  } else if (type < 0.68) {
     o = { type: 'spikes', x: aheadX, y: groundY - 12, w: 24, h: 12 };
   } else {
     o = { type: 'bird', x: aheadX, y: groundY - 55 - Math.random() * 50, w: 18, h: 12, bob: Math.random() * 6 };
   }
   obstacles.push(o);
+  lastObstacleX = aheadX;
 }
 
 function spawnCollectible() {
-  const aheadX = cameraX + GAME_WIDTH + 30;
+  const aheadX = cameraX + GAME_WIDTH + 40 + Math.random() * 60;
   const groundY = getGroundY(aheadX);
   const type = Math.random() < 0.72 ? 'coin' : 'heart';
 
@@ -340,15 +344,18 @@ function spawnCollectible() {
     h: 12,
     collected: false
   });
+  lastCollectibleX = aheadX;
 }
 
 // -------------------- DRAW WORLD --------------------
 function drawWorld() {
-  ctx.fillStyle = '#1a1a2e';
+  const pal = getPalette();
+
+  ctx.fillStyle = pal.sky;
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
   // Parallax mountains
-  ctx.fillStyle = '#16213e';
+  ctx.fillStyle = pal.mountain;
   for (let i = -1; i < 8; i++) {
     const bx = ((i * 130) - (cameraX * 0.15 % 130));
     ctx.beginPath();
@@ -362,8 +369,8 @@ function drawWorld() {
   // Trees
   for (let i = -1; i < 10; i++) {
     const tx = ((i * 75) - (cameraX * 0.4 % 75));
-    px(tx + 14, 170, 6, 50, '#3d2914');
-    ctx.fillStyle = '#1b4332';
+    px(tx + 14, 170, 6, 50, pal.treeTrunk);
+    ctx.fillStyle = pal.treeLeaf;
     ctx.beginPath();
     ctx.moveTo(tx, 175);
     ctx.lineTo(tx + 17, 140);
@@ -377,9 +384,9 @@ function drawWorld() {
     if (sx + t.w < -20 || sx > GAME_WIDTH + 20) continue;
 
     if (t.type === 'ground') {
-      ctx.fillStyle = '#2d1b0e';
+      ctx.fillStyle = pal.ground;
       ctx.fillRect(sx, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
-      ctx.fillStyle = '#40916c';
+      ctx.fillStyle = pal.grass;
       ctx.fillRect(sx, t.top, t.w + 1, 6);
       ctx.fillStyle = '#3d2914';
       for (let gx = sx + 8; gx < sx + t.w - 4; gx += 16) {
@@ -479,6 +486,8 @@ function startGame() {
   lives = 3;
   invuln = 0;
   cameraX = 0;
+  lastObstacleX = 0;
+  lastCollectibleX = 0;
   player.x = 70;
   player.y = BASE_GROUND;
   player.vx = 0;
@@ -514,39 +523,32 @@ function update() {
   player.vx = move * MOVE_SPEED;
   if (move !== 0) player.facing = move;
 
-  // Apply gravity
+  // Gravity
   player.vy += GRAVITY;
   if (player.vy > MAX_FALL) player.vy = MAX_FALL;
 
-  // Horizontal move + side collision against rising walls
+  // Horizontal move + wall block
   const oldX = player.x;
   player.x += player.vx;
 
-  // Check for solid wall in the direction of movement
   if (player.vx > 0) {
-    // Moving right - check the right edge
     const checkX = player.x + player.w;
     const groundAtCheck = getGroundY(checkX);
     const groundAtFeet = getGroundY(player.x + player.w * 0.5);
-
-    // If the ground ahead is significantly higher, block
     if (groundAtCheck < groundAtFeet - 6 && player.y > groundAtCheck + 2) {
-      // Hit a wall face
       player.x = oldX;
       player.vx = 0;
     }
   } else if (player.vx < 0) {
-    // Moving left - simple left bound for now
     if (player.x < cameraX - 20) {
       player.x = cameraX - 20;
       player.vx = 0;
     }
   }
 
-  // Vertical move
+  // Vertical
   player.y += player.vy;
 
-  // Ground collision
   const midX = player.x + player.w * 0.5;
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
@@ -567,18 +569,16 @@ function update() {
     player.onGround = false;
   }
 
-  // Camera follows player (keeps her near left-center)
+  // Camera
   const targetCam = player.x - 110;
   cameraX += (targetCam - cameraX) * 0.12;
   if (cameraX < 0) cameraX = 0;
 
-  // Generate more world
   generateMoreTerrain();
   while (terrain.length > 0 && terrain[0].x + terrain[0].w < cameraX - 200) {
     terrain.shift();
   }
 
-  // Fall death
   if (player.y > GAME_HEIGHT + 60) {
     lives = 0;
     gameOver();
@@ -597,13 +597,22 @@ function update() {
     player.animFrame = 0;
   }
 
-  // Score / distance
+  // Score
   distance = Math.max(distance, player.x * 0.12);
   score = Math.floor(distance) + coins * 15;
 
-  // Spawning
-  if (frameCount % 55 === 0) spawnObstacle();
-  if (frameCount % 75 === 0) spawnCollectible();
+  // ===== EVEN DISTANCE-BASED SPAWNING =====
+  const stage = getStage();
+  // Base gap starts wide and slowly tightens with stage
+  const minObstacleGap = Math.max(160, 260 - stage * 18);
+  const minCollectGap  = Math.max(140, 220 - stage * 12);
+
+  if (player.x > lastObstacleX + minObstacleGap + Math.random() * 80) {
+    spawnObstacle();
+  }
+  if (player.x > lastCollectibleX + minCollectGap + Math.random() * 100) {
+    spawnCollectible();
+  }
 
   // Obstacles
   for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -695,6 +704,13 @@ function draw() {
   ctx.fillText(`SCORE ${score}`, 8, 16);
   ctx.fillText(`COINS ${coins}`, 8, 28);
 
+  // Soft stage indicator
+  const stage = getStage();
+  if (stage > 0) {
+    ctx.fillStyle = '#aaaaaa';
+    ctx.fillText(`AREA ${stage + 1}`, 8, 40);
+  }
+
   for (let i = 0; i < lives; i++) {
     px(GAME_WIDTH - 18 - i * 14, 8, 4, 4, '#ff3366');
     px(GAME_WIDTH - 14 - i * 14, 8, 4, 4, '#ff3366');
@@ -721,7 +737,7 @@ function draw() {
     ctx.fillText('ARROWS / A D  to move', GAME_WIDTH / 2, 200);
     ctx.fillText('SPACE / TAP  to jump', GAME_WIDTH / 2, 218);
     ctx.font = '9px Courier New';
-    ctx.fillText('Manual control  •  Walls now block you', GAME_WIDTH / 2, 240);
+    ctx.fillText('Manual control  •  Soft stages  •  Even spawns', GAME_WIDTH / 2, 240);
     ctx.textAlign = 'left';
   }
 
