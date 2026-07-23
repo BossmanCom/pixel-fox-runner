@@ -448,17 +448,19 @@ function update() {
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
-  // ========== ANCHORED GROUND LOGIC ==========
-  // Screen Y: smaller number = higher on screen
-  // Rising platform = groundUnder < lockedGroundY
+  // ========== SOLID WALL LOGIC ==========
+  // Rising platform = smaller Y number
+  // When a higher platform slides under the player, kick her off the ground
+  // so she falls instead of clipping into the solid body.
 
   if (player.onGround) {
-    if (groundUnder < player.lockedGroundY - 1) {
-      // Rising terrain (higher platform) → treat as wall, stay locked
-      player.y = player.lockedGroundY;
-      player.vy = 0;
+    if (groundUnder < player.lockedGroundY - 2) {
+      // Higher platform under us → solid wall. Kick off ground so we fall.
+      player.onGround = false;
+      player.vy = 0.5; // tiny downward push so gravity takes over cleanly
+      // keep lockedGroundY the same so we don't auto-climb later
     } else {
-      // Same height or lower (drop) → follow it
+      // Same height or lower → stay on ground
       player.y = groundUnder;
       player.lockedGroundY = groundUnder;
       player.vy = 0;
@@ -472,8 +474,8 @@ function update() {
       }
     }
   } else {
-    // In the air - normal landing
-    if (player.vy >= 0 && player.y >= groundUnder) {
+    // In the air - normal landing (only from above)
+    if (player.vy >= 0 && player.y >= groundUnder - 1) {
       player.y = groundUnder;
       player.vy = 0;
       player.onGround = true;
