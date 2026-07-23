@@ -242,11 +242,16 @@ function getStage() {
 }
 
 const STAGE_PALETTES = [
+  // Area 1 - cool night
   { sky: '#1a1a2e', mountain: '#16213e', treeTrunk: '#3d2914', treeLeaf: '#1b4332', ground: '#2d1b0e', grass: '#40916c' },
-  { sky: '#1a1528', mountain: '#1e1635', treeTrunk: '#3a2518', treeLeaf: '#1a3a2e', ground: '#2a180c', grass: '#3a8a5c' },
-  { sky: '#15122a', mountain: '#1a1230', treeTrunk: '#352010', treeLeaf: '#16352a', ground: '#26150a', grass: '#357a50' },
-  { sky: '#120f22', mountain: '#160e28', treeTrunk: '#301c0c', treeLeaf: '#122f25', ground: '#221208', grass: '#2f6a45' },
-  { sky: '#0e0c1c', mountain: '#120a22', treeTrunk: '#2a1808', treeLeaf: '#0e2820', ground: '#1e0f06', grass: '#285a3a' }
+  // Area 2 - deep purple night
+  { sky: '#1c1230', mountain: '#251545', treeTrunk: '#3a1f2a', treeLeaf: '#2a1a3a', ground: '#2a1520', grass: '#5a3a6a' },
+  // Area 3 - teal dusk
+  { sky: '#0f1e24', mountain: '#14303a', treeTrunk: '#2a3020', treeLeaf: '#1a4035', ground: '#1e2a1a', grass: '#2a6a55' },
+  // Area 4 - crimson night
+  { sky: '#1e1018', mountain: '#2a1520', treeTrunk: '#3a2018', treeLeaf: '#3a2520', ground: '#2a1810', grass: '#6a3a2a' },
+  // Area 5 - near black + cyan accents
+  { sky: '#0a0c14', mountain: '#101828', treeTrunk: '#1a2030', treeLeaf: '#152535', ground: '#12181e', grass: '#1a4a5a' }
 ];
 
 function getPalette() {
