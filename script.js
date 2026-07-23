@@ -12,7 +12,7 @@ ctx.imageSmoothingEnabled = false;
 
 // -------------------- CONFIG --------------------
 const GAME_WIDTH = 480;
-const GAME_HEIGHT = 270;          // 16:9-ish retro feel
+const GAME_HEIGHT = 270;
 const GROUND_Y = 220;
 const GRAVITY = 0.55;
 const JUMP_FORCE = -9.8;
@@ -22,20 +22,54 @@ const SPEED_INCREASE = 0.00035;
 
 let canvasScale = 1;
 
+// -------------------- AUDIO (retro beeps) --------------------
+let audioCtx = null;
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+}
+
+function playBeep(freq, duration, type = 'square', volume = 0.08) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+// Sound presets
+function sfxJump()    { playBeep(480, 0.08, 'square', 0.07); setTimeout(() => playBeep(620, 0.1, 'square', 0.05), 40); }
+function sfxCoin()    { playBeep(880, 0.06, 'square', 0.06); setTimeout(() => playBeep(1200, 0.1, 'square', 0.05), 50); }
+function sfxHit()     { playBeep(180, 0.15, 'sawtooth', 0.09); setTimeout(() => playBeep(120, 0.2, 'sawtooth', 0.06), 60); }
+function sfxStomp()   { playBeep(220, 0.06, 'square', 0.08); setTimeout(() => playBeep(160, 0.12, 'triangle', 0.07), 40); }
+function sfxHeart()   { playBeep(660, 0.08, 'sine', 0.07); setTimeout(() => playBeep(880, 0.12, 'sine', 0.05), 70); }
+function sfxGameOver(){ playBeep(300, 0.2, 'sawtooth', 0.08); setTimeout(() => playBeep(200, 0.3, 'sawtooth', 0.07), 150); setTimeout(() => playBeep(120, 0.4, 'sawtooth', 0.06), 320); }
+
 // -------------------- STATE --------------------
-let state = 'start';             // 'start' | 'playing' | 'gameover'
+let state = 'start';
 let score = 0;
 let distance = 0;
 let coins = 0;
 let lives = 3;
-let invuln = 0;                  // invulnerability frames after hit
+let invuln = 0;
 let speed = START_SPEED;
 let frameCount = 0;
 
 // -------------------- PLAYER --------------------
 const player = {
   x: 70,
-  y: GROUND_Y,                   // y = feet / bottom of sprite
+  y: GROUND_Y,          // y = feet / bottom of sprite
   w: 16,
   h: 24,
   vy: 0,
@@ -56,6 +90,8 @@ let bgNear = 0;
 
 // -------------------- INPUT --------------------
 function onJump() {
+  initAudio(); // unlock audio on first interaction
+
   if (state === 'start') {
     startGame();
     return;
@@ -67,6 +103,7 @@ function onJump() {
   if (state === 'playing' && player.onGround) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
+    sfxJump();
   }
 }
 
@@ -96,7 +133,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// -------------------- SPRITE DRAWING (pure pixel art) --------------------
+// -------------------- SPRITE DRAWING --------------------
 const C = {
   skin: '#ffccaa',
   hair: '#22cc66',
@@ -115,14 +152,12 @@ function px(x, y, w, h, color) {
   ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
 }
 
-// Main character drawer – 16×24 pixel fox girl
-// pxY is the TOP of the sprite
 function drawFox(pxX, pxY, frame, scale = 1) {
   const s = scale;
   const x = Math.floor(pxX);
   const y = Math.floor(pxY);
 
-  // Tail (behind)
+  // Tail
   px(x - 4*s, y + 12*s, 6*s, 4*s, C.tail);
   px(x - 6*s, y + 10*s, 4*s, 4*s, C.tail);
 
@@ -133,7 +168,7 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   px(x + 2*s, y + 4*s, 12*s, 8*s, C.onesie);
   px(x + 1*s, y + 5*s, 14*s, 6*s, C.onesie);
 
-  // Ears (hood ears)
+  // Ears
   px(x + 2*s, y + 1*s, 4*s, 5*s, C.onesie);
   px(x + 10*s, y + 1*s, 4*s, 5*s, C.onesie);
   px(x + 3*s, y + 2*s, 2*s, 3*s, C.white);
@@ -142,7 +177,7 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   // Face
   px(x + 4*s, y + 6*s, 8*s, 6*s, C.skin);
 
-  // Hair (twintails)
+  // Hair
   px(x + 1*s, y + 5*s, 3*s, 8*s, C.hair);
   px(x + 12*s, y + 5*s, 3*s, 8*s, C.hair);
   px(x + 0*s, y + 7*s, 2*s, 6*s, C.hairDark);
@@ -154,33 +189,31 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   px(x + 5*s, y + 7*s, 1*s, 1*s, C.white);
   px(x + 9*s, y + 7*s, 1*s, 1*s, C.white);
 
-  // Legs – different per frame
-  if (frame === 0) { // idle
+  // Legs
+  if (frame === 0) {
     px(x + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
     px(x + 9*s, y + 20*s, 3*s, 4*s, C.onesie);
-  } else if (frame === 1) { // run 1
+  } else if (frame === 1) {
     px(x + 3*s, y + 19*s, 3*s, 5*s, C.onesie);
     px(x + 10*s, y + 20*s, 3*s, 4*s, C.onesie);
-  } else if (frame === 2) { // run 2
+  } else if (frame === 2) {
     px(x + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
     px(x + 9*s, y + 19*s, 3*s, 5*s, C.onesie);
-  } else { // jump
+  } else {
     px(x + 3*s, y + 18*s, 4*s, 4*s, C.onesie);
     px(x + 9*s, y + 18*s, 4*s, 4*s, C.onesie);
   }
 
-  // Little socks
+  // Socks
   px(x + 4*s, y + 23*s, 3*s, 1*s, C.white);
   px(x + 9*s, y + 23*s, 3*s, 1*s, C.white);
 }
 
 // -------------------- BACKGROUND --------------------
 function drawBackground() {
-  // Sky
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
 
-  // Far mountains / hills (very slow)
   ctx.fillStyle = '#16213e';
   for (let i = -1; i < 6; i++) {
     const bx = ((i * 120) - (bgFar % 120));
@@ -192,12 +225,9 @@ function drawBackground() {
     ctx.fill();
   }
 
-  // Mid trees (medium speed)
   for (let i = -1; i < 8; i++) {
     const tx = ((i * 70) - (bgMid % 70));
-    // trunk
     px(tx + 12, GROUND_Y - 30, 6, 30, '#3d2914');
-    // leaves
     ctx.fillStyle = '#1b4332';
     ctx.beginPath();
     ctx.moveTo(tx, GROUND_Y - 28);
@@ -206,11 +236,9 @@ function drawBackground() {
     ctx.fill();
   }
 
-  // Ground
   ctx.fillStyle = '#2d1b0e';
   ctx.fillRect(0, GROUND_Y, GAME_WIDTH, GAME_HEIGHT - GROUND_Y);
 
-  // Near grass / dirt tiles (fast)
   ctx.fillStyle = '#40916c';
   for (let i = -1; i < 20; i++) {
     const gx = ((i * 32) - (bgNear % 32));
@@ -219,20 +247,17 @@ function drawBackground() {
   }
 }
 
-// -------------------- OBSTACLES & COLLECTIBLES --------------------
+// -------------------- SPAWN --------------------
 function spawnObstacle() {
   const type = Math.random();
   let o;
 
-  if (type < 0.45) {
-    // Crate
+  if (type < 0.42) {
     o = { type: 'crate', x: GAME_WIDTH + 20, y: GROUND_Y - 20, w: 20, h: 20 };
-  } else if (type < 0.75) {
-    // Spikes
+  } else if (type < 0.72) {
     o = { type: 'spikes', x: GAME_WIDTH + 20, y: GROUND_Y - 12, w: 24, h: 12 };
   } else {
-    // Bird
-    o = { type: 'bird', x: GAME_WIDTH + 20, y: GROUND_Y - 50 - Math.random() * 40, w: 18, h: 12, bob: 0 };
+    o = { type: 'bird', x: GAME_WIDTH + 20, y: GROUND_Y - 50 - Math.random() * 45, w: 18, h: 12, bob: Math.random() * Math.PI * 2 };
   }
   obstacles.push(o);
 }
@@ -242,18 +267,18 @@ function spawnCollectible() {
   collectibles.push({
     type,
     x: GAME_WIDTH + 20,
-    y: GROUND_Y - 30 - Math.random() * 60,
+    y: GROUND_Y - 28 - Math.random() * 65,
     w: 12,
     h: 12,
     collected: false
   });
 }
 
+// -------------------- DRAW OBJECTS --------------------
 function drawObstacle(o) {
   if (o.type === 'crate') {
     px(o.x, o.y, o.w, o.h, '#8B4513');
     px(o.x + 2, o.y + 2, o.w - 4, o.h - 4, '#A0522D');
-    // X mark
     ctx.strokeStyle = '#5c3317';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -274,11 +299,9 @@ function drawObstacle(o) {
   } else if (o.type === 'bird') {
     o.bob += 0.15;
     const by = o.y + Math.sin(o.bob) * 4;
-    // simple pixel bird
     px(o.x, by + 4, 14, 6, '#222');
     px(o.x + 10, by + 2, 6, 4, '#222');
-    px(o.x + 2, by + 2, 4, 2, '#fff'); // eye
-    // wing
+    px(o.x + 2, by + 2, 4, 2, '#fff');
     px(o.x + 4, by, 8, 3, '#444');
   }
 }
@@ -290,23 +313,36 @@ function drawCollectible(c) {
     px(c.x + 2, c.y + 2, 8, 8, '#ffec8b');
     px(c.x + 4, c.y + 4, 4, 4, '#ffd700');
   } else {
-    // heart
-    ctx.fillStyle = '#ff3366';
     px(c.x + 1, c.y + 3, 4, 4, '#ff3366');
     px(c.x + 7, c.y + 3, 4, 4, '#ff3366');
     px(c.x + 3, c.y + 5, 6, 6, '#ff3366');
   }
 }
 
-// -------------------- PARTICLES (tiny juice) --------------------
-function spawnHitParticles(x, y) {
-  for (let i = 0; i < 8; i++) {
+// -------------------- PARTICLES --------------------
+function spawnHitParticles(x, y, color1 = '#ff8800', color2 = '#22cc66') {
+  for (let i = 0; i < 10; i++) {
     particles.push({
       x, y,
-      vx: (Math.random() - 0.5) * 4,
-      vy: (Math.random() - 0.5) * 4 - 2,
-      life: 20 + Math.random() * 10,
-      color: Math.random() > 0.5 ? '#ff8800' : '#22cc66'
+      vx: (Math.random() - 0.5) * 5,
+      vy: (Math.random() - 0.5) * 5 - 2,
+      life: 18 + Math.random() * 12,
+      color: Math.random() > 0.5 ? color1 : color2,
+      size: 2 + Math.random() * 2
+    });
+  }
+}
+
+function spawnStompParticles(x, y) {
+  // bigger burst + some upward stars
+  for (let i = 0; i < 14; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 6,
+      vy: -Math.random() * 5 - 1,
+      life: 20 + Math.random() * 15,
+      color: Math.random() > 0.4 ? '#ffee88' : '#ffffff',
+      size: 2 + Math.random() * 3
     });
   }
 }
@@ -334,6 +370,7 @@ function restartGame() {
 
 function gameOver() {
   state = 'gameover';
+  sfxGameOver();
 }
 
 // -------------------- UPDATE --------------------
@@ -342,10 +379,9 @@ function update() {
 
   if (state !== 'playing') return;
 
-  // Speed ramp
   speed = Math.min(MAX_SPEED, START_SPEED + distance * SPEED_INCREASE);
 
-  // Player physics
+  // Physics
   player.vy += GRAVITY;
   player.y += player.vy;
 
@@ -362,50 +398,70 @@ function update() {
   if (player.onGround) {
     if (player.animTimer > 6) {
       player.animTimer = 0;
-      player.animFrame = (player.animFrame + 1) % 3; // 0,1,2 run cycle
+      player.animFrame = (player.animFrame + 1) % 3;
     }
   } else {
-    player.animFrame = 3; // jump frame
+    player.animFrame = 3;
   }
 
-  // Scroll backgrounds
+  // Parallax
   bgFar += speed * 0.15;
   bgMid += speed * 0.4;
   bgNear += speed * 1.0;
 
-  // Distance & score
   distance += speed * 0.15;
   score = Math.floor(distance) + coins * 15;
 
-  // Spawn logic
-  if (frameCount % Math.max(40, 90 - Math.floor(speed * 6)) === 0) {
+  // Spawn
+  if (frameCount % Math.max(38, 85 - Math.floor(speed * 6)) === 0) {
     spawnObstacle();
   }
-  if (frameCount % 70 === 0) {
+  if (frameCount % 68 === 0) {
     spawnCollectible();
   }
 
-  // Move & clean obstacles
+  // ---- Obstacles ----
   for (let i = obstacles.length - 1; i >= 0; i--) {
     const o = obstacles[i];
     o.x -= speed;
 
-    // Collision  (player.y is the BOTTOM / feet of the hitbox)
-    if (invuln <= 0 &&
-        player.x < o.x + o.w &&
-        player.x + player.w > o.x &&
-        player.y - player.h < o.y + o.h &&   // player's top < obstacle bottom
-        player.y > o.y) {                    // player's bottom > obstacle top
+    // Broad collision check first
+    const colliding =
+      player.x < o.x + o.w &&
+      player.x + player.w > o.x &&
+      player.y - player.h < o.y + o.h &&
+      player.y > o.y;
+
+    if (colliding && invuln <= 0) {
+
+      // ===== Mario-style bird stomp =====
+      if (o.type === 'bird') {
+        const birdMid = o.y + o.h * 0.45; // top ~45% is stomp zone
+
+        // Player is falling and feet are near the top of the bird
+        if (player.vy > 0 && player.y < birdMid + 8) {
+          // STOMP!
+          obstacles.splice(i, 1);
+          player.vy = -6.5;           // nice little bounce
+          score += 50;
+          spawnStompParticles(o.x + o.w / 2, o.y + 4);
+          sfxStomp();
+          continue;
+        }
+      }
+
+      // Normal damage (crates, spikes, or bottom of bird)
       lives--;
-      invuln = 60;
+      invuln = 55;
       spawnHitParticles(player.x + 8, player.y - 12);
+      sfxHit();
       if (lives <= 0) gameOver();
     }
 
     if (o.x + o.w < -20) obstacles.splice(i, 1);
   }
 
-  // Collectibles
+  // ---- Collectibles ----
   for (let i = collectibles.length - 1; i >= 0; i--) {
     const c = collectibles[i];
     c.x -= speed;
@@ -415,13 +471,16 @@ function update() {
         player.x + player.w > c.x &&
         player.y - player.h < c.y + c.h &&
         player.y > c.y) {
+
       c.collected = true;
       if (c.type === 'coin') {
         coins++;
+        sfxCoin();
       } else {
         lives = Math.min(5, lives + 1);
+        sfxHeart();
       }
-      spawnHitParticles(c.x + 6, c.y + 6);
+      spawnHitParticles(c.x + 6, c.y + 6, '#ffd700', '#ffee88');
     }
 
     if (c.x + c.w < -10 || c.collected) collectibles.splice(i, 1);
@@ -432,7 +491,7 @@ function update() {
     const p = particles[i];
     p.x += p.vx;
     p.y += p.vy;
-    p.vy += 0.15;
+    p.vy += 0.18;
     p.life--;
     if (p.life <= 0) particles.splice(i, 1);
   }
@@ -442,23 +501,20 @@ function update() {
 
 // -------------------- DRAW --------------------
 function draw() {
-  // Clear
   ctx.fillStyle = '#0a0a12';
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
   drawBackground();
 
-  // Objects
   obstacles.forEach(drawObstacle);
   collectibles.forEach(drawCollectible);
 
-  // Particles
+  // Particles with size
   particles.forEach(p => {
-    px(p.x, p.y, 3, 3, p.color);
+    px(p.x, p.y, p.size || 3, p.size || 3, p.color);
   });
 
-  // Player (blink when invulnerable)
-  // player.y is feet, so draw top at player.y - h
+  // Player
   if (invuln <= 0 || Math.floor(invuln / 4) % 2 === 0) {
     drawFox(player.x, player.y - 24, player.animFrame, 1);
   }
@@ -469,7 +525,6 @@ function draw() {
   ctx.fillText(`SCORE ${score}`, 8, 16);
   ctx.fillText(`COINS ${coins}`, 8, 28);
 
-  // Lives as little hearts
   for (let i = 0; i < lives; i++) {
     px(GAME_WIDTH - 18 - i * 14, 8, 4, 4, '#ff3366');
     px(GAME_WIDTH - 14 - i * 14, 8, 4, 4, '#ff3366');
@@ -481,7 +536,6 @@ function draw() {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Title
     ctx.fillStyle = '#ff8800';
     ctx.font = 'bold 22px Courier New';
     ctx.textAlign = 'center';
@@ -491,14 +545,13 @@ function draw() {
     ctx.font = '12px Courier New';
     ctx.fillText('featuring Ani', GAME_WIDTH / 2, 92);
 
-    // Big idle fox
     drawFox(GAME_WIDTH / 2 - 24, 110, 0, 3);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '11px Courier New';
     ctx.fillText('SPACE / TAP TO START', GAME_WIDTH / 2, 220);
     ctx.font = '9px Courier New';
-    ctx.fillText('Jump over crates & spikes  •  Collect coins & hearts', GAME_WIDTH / 2, 240);
+    ctx.fillText('Jump • Stomp birds • Collect coins & hearts', GAME_WIDTH / 2, 240);
     ctx.textAlign = 'left';
   }
 
