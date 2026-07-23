@@ -1,8 +1,7 @@
 // ============================================================
 // Pixel Fox Runner - Infinite Runner
 // Pure HTML5 Canvas + vanilla JS
-// 8-bit style fox girl (Ani) as the player
-// Terrain with clear hills, platforms & water hazards
+// 8-bit style fox girl (Ani)
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
@@ -18,6 +17,7 @@ const JUMP_FORCE = -10.5;
 const START_SPEED = 2.8;
 const MAX_SPEED = 9.2;
 const SPEED_INCREASE = 0.00032;
+const MAX_STEP = 14; // max height you can walk up without jumping
 
 let canvasScale = 1;
 
@@ -51,6 +51,24 @@ function sfxHeart()   { playBeep(660, 0.08, 'sine', 0.07); setTimeout(() => play
 function sfxGameOver(){ playBeep(300, 0.2, 'sawtooth', 0.08); setTimeout(() => playBeep(200, 0.3, 'sawtooth', 0.07), 150); setTimeout(() => playBeep(120, 0.4, 'sawtooth', 0.06), 320); }
 function sfxWater()   { playBeep(140, 0.12, 'triangle', 0.07); setTimeout(() => playBeep(90, 0.18, 'sawtooth', 0.05), 50); }
 
+// Simple start jingle
+function playStartJingle() {
+  const notes = [
+    {f: 523, d: 0.12}, // C
+    {f: 659, d: 0.12}, // E
+    {f: 784, d: 0.12}, // G
+    {f: 1047, d: 0.18}, // C high
+    {f: 784, d: 0.1},
+    {f: 880, d: 0.15}, // A
+    {f: 1047, d: 0.25}
+  ];
+  let t = 0;
+  notes.forEach(n => {
+    setTimeout(() => playBeep(n.f, n.d, 'square', 0.06), t * 1000);
+    t += n.d * 0.85;
+  });
+}
+
 // -------------------- STATE --------------------
 let state = 'start';
 let score = 0;
@@ -77,9 +95,8 @@ const player = {
 let obstacles = [];
 let collectibles = [];
 let particles = [];
-let terrain = [];          // {x, w, top, type: 'ground'|'water'}
+let terrain = [];
 
-// Parallax
 let bgFar = 0;
 let bgMid = 0;
 let bgNear = 0;
@@ -179,10 +196,9 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   px(x + 9*s, y + 23*s, 3*s, 1*s, C.white);
 }
 
-// -------------------- TERRAIN SYSTEM (more aggressive) --------------------
+// -------------------- TERRAIN --------------------
 function initTerrain() {
   terrain = [];
-  // Much shorter safe start so you hit variation quickly
   terrain.push({ x: -40, w: 180, top: BASE_GROUND, type: 'ground' });
   generateMoreTerrain();
 }
@@ -195,29 +211,22 @@ function generateMoreTerrain() {
     const nextX = last.x + last.w;
     const roll = Math.random();
 
-    // Higher chance of water pits (crate-sized)
     if (roll < 0.22 && last.type === 'ground') {
-      const waterW = 22 + Math.floor(Math.random() * 12); // 22-33px
+      const waterW = 22 + Math.floor(Math.random() * 12);
       terrain.push({ x: nextX, w: waterW, top: BASE_GROUND + 6, type: 'water' });
       continue;
     }
 
-    // Much more aggressive height changes
     let newTop = last.top;
     const heightRoll = Math.random();
 
     if (heightRoll < 0.38) {
-      // Strong rise (clear platform / hill)
       newTop = Math.max(130, last.top - (22 + Math.floor(Math.random() * 36)));
     } else if (heightRoll < 0.62) {
-      // Drop down
       newTop = Math.min(BASE_GROUND, last.top + (18 + Math.floor(Math.random() * 30)));
     }
-    // else keep similar height
 
-    // Make sure we don't go too crazy
     newTop = Math.max(125, Math.min(BASE_GROUND, newTop));
-
     const segW = 40 + Math.floor(Math.random() * 80);
     terrain.push({ x: nextX, w: segW, top: newTop, type: 'ground' });
   }
@@ -238,13 +247,11 @@ function getGroundY(px) {
   return t.top;
 }
 
-// -------------------- BACKGROUND + TERRAIN DRAW --------------------
+// -------------------- DRAW WORLD --------------------
 function drawWorld() {
-  // Sky
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-  // Far hills
   ctx.fillStyle = '#16213e';
   for (let i = -1; i < 7; i++) {
     const bx = ((i * 130) - (bgFar % 130));
@@ -256,7 +263,6 @@ function drawWorld() {
     ctx.fill();
   }
 
-  // Mid trees
   for (let i = -1; i < 9; i++) {
     const tx = ((i * 75) - (bgMid % 75));
     px(tx + 14, 170, 6, 50, '#3d2914');
@@ -268,30 +274,21 @@ function drawWorld() {
     ctx.fill();
   }
 
-  // Draw terrain
   for (const t of terrain) {
     if (t.x + t.w < -10 || t.x > GAME_WIDTH + 10) continue;
 
     if (t.type === 'ground') {
-      // Ground body
       ctx.fillStyle = '#2d1b0e';
       ctx.fillRect(t.x, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
-
-      // Grass top
       ctx.fillStyle = '#40916c';
       ctx.fillRect(t.x, t.top, t.w + 1, 6);
-
-      // Dirt details
       ctx.fillStyle = '#3d2914';
       for (let gx = t.x + 8; gx < t.x + t.w - 4; gx += 16) {
         px(gx, t.top + 8, 5, 3, '#3d2914');
       }
     } else {
-      // Water
       ctx.fillStyle = '#0a3d62';
       ctx.fillRect(t.x, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
-
-      // Surface
       ctx.fillStyle = '#1e90ff';
       ctx.fillRect(t.x, t.top, t.w + 1, 5);
       ctx.fillStyle = '#4fc3f7';
@@ -305,16 +302,19 @@ function drawWorld() {
 // -------------------- SPAWN --------------------
 function spawnObstacle() {
   const aheadX = GAME_WIDTH + 30;
-  const groundY = getGroundY(aheadX);
   const t = getTerrainUnder(aheadX);
+
+  // Never spawn anything on water
   if (t && t.type === 'water') return;
 
+  const groundY = getGroundY(aheadX);
   const type = Math.random();
   let o;
 
   if (type < 0.40) {
     o = { type: 'crate', x: aheadX, y: groundY - 20, w: 20, h: 20 };
   } else if (type < 0.70) {
+    // Spikes only on solid ground
     o = { type: 'spikes', x: aheadX, y: groundY - 12, w: 24, h: 12 };
   } else {
     o = { type: 'bird', x: aheadX, y: groundY - 55 - Math.random() * 50, w: 18, h: 12, bob: Math.random() * 6 };
@@ -386,38 +386,24 @@ function drawCollectible(c) {
 function spawnHitParticles(x, y, color1 = '#ff8800', color2 = '#22cc66') {
   for (let i = 0; i < 10; i++) {
     particles.push({
-      x, y,
-      vx: (Math.random() - 0.5) * 5,
-      vy: (Math.random() - 0.5) * 5 - 2,
-      life: 18 + Math.random() * 12,
-      color: Math.random() > 0.5 ? color1 : color2,
-      size: 2 + Math.random() * 2
+      x, y, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5 - 2,
+      life: 18 + Math.random()*12, color: Math.random()>0.5 ? color1 : color2, size: 2+Math.random()*2
     });
   }
 }
-
 function spawnStompParticles(x, y) {
   for (let i = 0; i < 14; i++) {
     particles.push({
-      x, y,
-      vx: (Math.random() - 0.5) * 6,
-      vy: -Math.random() * 5 - 1,
-      life: 20 + Math.random() * 15,
-      color: Math.random() > 0.4 ? '#ffee88' : '#ffffff',
-      size: 2 + Math.random() * 3
+      x, y, vx: (Math.random()-0.5)*6, vy: -Math.random()*5 - 1,
+      life: 20 + Math.random()*15, color: Math.random()>0.4 ? '#ffee88' : '#ffffff', size: 2+Math.random()*3
     });
   }
 }
-
 function spawnWaterSplash(x, y) {
   for (let i = 0; i < 12; i++) {
     particles.push({
-      x, y,
-      vx: (Math.random() - 0.5) * 4,
-      vy: -Math.random() * 4 - 1,
-      life: 15 + Math.random() * 10,
-      color: Math.random() > 0.5 ? '#4fc3f7' : '#1e90ff',
-      size: 2 + Math.random() * 2
+      x, y, vx: (Math.random()-0.5)*4, vy: -Math.random()*4 - 1,
+      life: 15 + Math.random()*10, color: Math.random()>0.5 ? '#4fc3f7' : '#1e90ff', size: 2+Math.random()*2
     });
   }
 }
@@ -438,6 +424,7 @@ function startGame() {
   player.vy = 0;
   player.onGround = true;
   initTerrain();
+  playStartJingle();
 }
 
 function restartGame() {
@@ -458,33 +445,49 @@ function update() {
 
   generateMoreTerrain();
 
-  // Scroll terrain
   for (const t of terrain) t.x -= speed;
-  while (terrain.length > 0 && terrain[0].x + terrain[0].w < -60) {
-    terrain.shift();
-  }
+  while (terrain.length > 0 && terrain[0].x + terrain[0].w < -60) terrain.shift();
 
   // Physics
   player.vy += GRAVITY;
   player.y += player.vy;
 
-  const groundY = getGroundY(player.x + player.w / 2);
-  const under = getTerrainUnder(player.x + player.w / 2);
+  const midX = player.x + player.w / 2;
+  const groundY = getGroundY(midX);
+  const under = getTerrainUnder(midX);
+
+  // Look a little ahead for step detection
+  const aheadGroundY = getGroundY(player.x + player.w + 6);
 
   if (player.y >= groundY) {
-    player.y = groundY;
-    player.vy = 0;
-    player.onGround = true;
+    // Only allow standing if the step up is small enough
+    const stepUp = groundY - player.y; // negative when going up
 
-    if (under && under.type === 'water' && invuln <= 0) {
-      lives--;
-      invuln = 50;
-      spawnWaterSplash(player.x + 8, player.y - 4);
-      sfxWater();
-      if (lives <= 0) gameOver();
+    if (groundY <= player.y + MAX_STEP) {
+      // Allowed to stand / step up
+      player.y = groundY;
+      player.vy = 0;
+      player.onGround = true;
+
+      if (under && under.type === 'water' && invuln <= 0) {
+        lives--;
+        invuln = 50;
+        spawnWaterSplash(player.x + 8, player.y - 4);
+        sfxWater();
+        if (lives <= 0) gameOver();
+      }
+    } else {
+      // Too high to step onto — treat as solid wall
+      player.onGround = false;
     }
   } else {
     player.onGround = false;
+  }
+
+  // Extra wall check: if a tall platform is right in front while on ground
+  if (player.onGround && aheadGroundY < player.y - MAX_STEP) {
+    // There's a tall wall ahead — we just let gravity/jump handle it
+    // (player will fall if they walk off, or need to jump)
   }
 
   if (player.y > GAME_HEIGHT + 40) {
@@ -503,7 +506,6 @@ function update() {
     player.animFrame = 3;
   }
 
-  // Parallax
   bgFar += speed * 0.12;
   bgMid += speed * 0.35;
   bgNear += speed * 0.9;
@@ -511,7 +513,6 @@ function update() {
   distance += speed * 0.15;
   score = Math.floor(distance) + coins * 15;
 
-  // Spawn
   if (frameCount % Math.max(40, 88 - Math.floor(speed * 6)) === 0) spawnObstacle();
   if (frameCount % 70 === 0) spawnCollectible();
 
@@ -573,7 +574,6 @@ function update() {
     if (c.x + c.w < -15 || c.collected) collectibles.splice(i, 1);
   }
 
-  // Particles
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx;
@@ -601,7 +601,6 @@ function draw() {
     drawFox(player.x, player.y - 24, player.animFrame, 1);
   }
 
-  // UI
   ctx.fillStyle = '#ffffff';
   ctx.font = '10px Courier New';
   ctx.fillText(`SCORE ${score}`, 8, 16);
