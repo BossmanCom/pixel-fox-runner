@@ -448,34 +448,30 @@ function update() {
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
-  // ========== SOLID WALL LOGIC ==========
-  // Rising platform = smaller Y number
-  // When a higher platform slides under the player, kick her off the ground
-  // so she falls instead of clipping into the solid body.
+  // ========== SOLID TERRAIN + WALL COLLISION ==========
+  // How much higher is the new ground than where she was standing?
+  const heightDiff = player.lockedGroundY - groundUnder; // positive = rising wall
 
-  if (player.onGround) {
-    if (groundUnder < player.lockedGroundY - 2) {
-      // Higher platform under us → solid wall. Kick off ground so we fall.
-      player.onGround = false;
-      player.vy = 0.5; // tiny downward push so gravity takes over cleanly
-      // keep lockedGroundY the same so we don't auto-climb later
-    } else {
-      // Same height or lower → stay on ground
-      player.y = groundUnder;
-      player.lockedGroundY = groundUnder;
-      player.vy = 0;
+  if (player.y >= groundUnder - 1) {
+    // She is touching or inside the surface
 
-      if (under && under.type === 'water' && invuln <= 0) {
+    if (heightDiff > 18 && player.onGround) {
+      // Tall rising wall she just ran into
+      // Treat it like smacking a solid crate
+      if (invuln <= 0) {
         lives--;
-        invuln = 50;
-        spawnWaterSplash(player.x + 8, player.y - 4);
-        sfxWater();
+        invuln = 55;
+        spawnHitParticles(player.x + 8, player.y - 12);
+        sfxHit();
         if (lives <= 0) gameOver();
       }
-    }
-  } else {
-    // In the air - normal landing (only from above)
-    if (player.vy >= 0 && player.y >= groundUnder - 1) {
+      // Bounce her up onto the wall instead of letting her clip through
+      player.y = groundUnder;
+      player.vy = -4.2;          // little bounce so it feels like she hit it
+      player.onGround = false;
+      player.lockedGroundY = groundUnder;
+    } else {
+      // Normal landing or small step
       player.y = groundUnder;
       player.vy = 0;
       player.onGround = true;
@@ -489,6 +485,9 @@ function update() {
         if (lives <= 0) gameOver();
       }
     }
+  } else {
+    // Still in the air
+    player.onGround = false;
   }
 
   if (player.y > GAME_HEIGHT + 40) {
