@@ -2,36 +2,31 @@
 // Pixel Fox Runner - Infinite Runner
 // Pure HTML5 Canvas + vanilla JS
 // 8-bit style fox girl (Ani) as the player
+// Now with terrain height, platforms & water hazards
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-
-// Disable smoothing so pixels stay chunky
 ctx.imageSmoothingEnabled = false;
 
 // -------------------- CONFIG --------------------
 const GAME_WIDTH = 480;
 const GAME_HEIGHT = 270;
-const GROUND_Y = 220;
+const BASE_GROUND = 220;
 const GRAVITY = 0.55;
-const JUMP_FORCE = -9.8;
+const JUMP_FORCE = -10.2;
 const START_SPEED = 2.8;
-const MAX_SPEED = 9.5;
-const SPEED_INCREASE = 0.00035;
+const MAX_SPEED = 9.2;
+const SPEED_INCREASE = 0.00032;
 
 let canvasScale = 1;
 
-// -------------------- AUDIO (retro beeps) --------------------
+// -------------------- AUDIO --------------------
 let audioCtx = null;
 
 function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 
 function playBeep(freq, duration, type = 'square', volume = 0.08) {
@@ -48,13 +43,13 @@ function playBeep(freq, duration, type = 'square', volume = 0.08) {
   osc.stop(audioCtx.currentTime + duration);
 }
 
-// Sound presets
 function sfxJump()    { playBeep(480, 0.08, 'square', 0.07); setTimeout(() => playBeep(620, 0.1, 'square', 0.05), 40); }
 function sfxCoin()    { playBeep(880, 0.06, 'square', 0.06); setTimeout(() => playBeep(1200, 0.1, 'square', 0.05), 50); }
 function sfxHit()     { playBeep(180, 0.15, 'sawtooth', 0.09); setTimeout(() => playBeep(120, 0.2, 'sawtooth', 0.06), 60); }
 function sfxStomp()   { playBeep(220, 0.06, 'square', 0.08); setTimeout(() => playBeep(160, 0.12, 'triangle', 0.07), 40); }
 function sfxHeart()   { playBeep(660, 0.08, 'sine', 0.07); setTimeout(() => playBeep(880, 0.12, 'sine', 0.05), 70); }
 function sfxGameOver(){ playBeep(300, 0.2, 'sawtooth', 0.08); setTimeout(() => playBeep(200, 0.3, 'sawtooth', 0.07), 150); setTimeout(() => playBeep(120, 0.4, 'sawtooth', 0.06), 320); }
+function sfxWater()   { playBeep(140, 0.12, 'triangle', 0.07); setTimeout(() => playBeep(90, 0.18, 'sawtooth', 0.05), 50); }
 
 // -------------------- STATE --------------------
 let state = 'start';
@@ -69,7 +64,7 @@ let frameCount = 0;
 // -------------------- PLAYER --------------------
 const player = {
   x: 70,
-  y: GROUND_Y,          // y = feet / bottom of sprite
+  y: BASE_GROUND,
   w: 16,
   h: 24,
   vy: 0,
@@ -78,28 +73,22 @@ const player = {
   animTimer: 0
 };
 
-// -------------------- WORLD OBJECTS --------------------
+// -------------------- WORLD --------------------
 let obstacles = [];
 let collectibles = [];
 let particles = [];
+let terrain = [];          // {x, w, top, type: 'ground'|'water'}
 
-// Parallax layers
+// Parallax
 let bgFar = 0;
 let bgMid = 0;
 let bgNear = 0;
 
 // -------------------- INPUT --------------------
 function onJump() {
-  initAudio(); // unlock audio on first interaction
-
-  if (state === 'start') {
-    startGame();
-    return;
-  }
-  if (state === 'gameover') {
-    restartGame();
-    return;
-  }
+  initAudio();
+  if (state === 'start') { startGame(); return; }
+  if (state === 'gameover') { restartGame(); return; }
   if (state === 'playing' && player.onGround) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
@@ -113,7 +102,6 @@ window.addEventListener('keydown', e => {
     onJump();
   }
 });
-
 canvas.addEventListener('pointerdown', e => {
   e.preventDefault();
   onJump();
@@ -124,7 +112,6 @@ function resize() {
   const scaleX = window.innerWidth / GAME_WIDTH;
   const scaleY = window.innerHeight / GAME_HEIGHT;
   canvasScale = Math.min(scaleX, scaleY) * 0.95;
-
   canvas.width = GAME_WIDTH;
   canvas.height = GAME_HEIGHT;
   canvas.style.width = (GAME_WIDTH * canvasScale) + 'px';
@@ -133,18 +120,10 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// -------------------- SPRITE DRAWING --------------------
+// -------------------- DRAW HELPERS --------------------
 const C = {
-  skin: '#ffccaa',
-  hair: '#22cc66',
-  hairDark: '#118844',
-  onesie: '#ff8800',
-  onesieDark: '#cc5500',
-  white: '#ffffff',
-  purple: '#aa44ff',
-  black: '#1a1a1a',
-  outline: '#000000',
-  tail: '#cc6622'
+  skin: '#ffccaa', hair: '#22cc66', hairDark: '#118844',
+  onesie: '#ff8800', white: '#ffffff', purple: '#aa44ff', tail: '#cc6622'
 };
 
 function px(x, y, w, h, color) {
@@ -157,39 +136,31 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   const x = Math.floor(pxX);
   const y = Math.floor(pxY);
 
-  // Tail
   px(x - 4*s, y + 12*s, 6*s, 4*s, C.tail);
   px(x - 6*s, y + 10*s, 4*s, 4*s, C.tail);
 
-  // Body / onesie
   px(x + 3*s, y + 10*s, 10*s, 10*s, C.onesie);
   px(x + 2*s, y + 11*s, 12*s, 8*s, C.onesie);
-  // Hood
   px(x + 2*s, y + 4*s, 12*s, 8*s, C.onesie);
   px(x + 1*s, y + 5*s, 14*s, 6*s, C.onesie);
 
-  // Ears
   px(x + 2*s, y + 1*s, 4*s, 5*s, C.onesie);
   px(x + 10*s, y + 1*s, 4*s, 5*s, C.onesie);
   px(x + 3*s, y + 2*s, 2*s, 3*s, C.white);
   px(x + 11*s, y + 2*s, 2*s, 3*s, C.white);
 
-  // Face
   px(x + 4*s, y + 6*s, 8*s, 6*s, C.skin);
 
-  // Hair
   px(x + 1*s, y + 5*s, 3*s, 8*s, C.hair);
   px(x + 12*s, y + 5*s, 3*s, 8*s, C.hair);
   px(x + 0*s, y + 7*s, 2*s, 6*s, C.hairDark);
   px(x + 14*s, y + 7*s, 2*s, 6*s, C.hairDark);
 
-  // Eyes
   px(x + 5*s, y + 7*s, 2*s, 2*s, C.purple);
   px(x + 9*s, y + 7*s, 2*s, 2*s, C.purple);
   px(x + 5*s, y + 7*s, 1*s, 1*s, C.white);
   px(x + 9*s, y + 7*s, 1*s, 1*s, C.white);
 
-  // Legs
   if (frame === 0) {
     px(x + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
     px(x + 9*s, y + 20*s, 3*s, 4*s, C.onesie);
@@ -204,70 +175,164 @@ function drawFox(pxX, pxY, frame, scale = 1) {
     px(x + 9*s, y + 18*s, 4*s, 4*s, C.onesie);
   }
 
-  // Socks
   px(x + 4*s, y + 23*s, 3*s, 1*s, C.white);
   px(x + 9*s, y + 23*s, 3*s, 1*s, C.white);
 }
 
-// -------------------- BACKGROUND --------------------
-function drawBackground() {
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
+// -------------------- TERRAIN SYSTEM --------------------
+function initTerrain() {
+  terrain = [];
+  // Start with a long safe flat section
+  terrain.push({ x: -50, w: 320, top: BASE_GROUND, type: 'ground' });
+  generateMoreTerrain();
+}
 
+function generateMoreTerrain() {
+  // Keep generating until we have enough terrain ahead of the screen
+  while (true) {
+    const last = terrain[terrain.length - 1];
+    if (last.x + last.w > GAME_WIDTH + 400) break;
+
+    const nextX = last.x + last.w;
+    const roll = Math.random();
+
+    // ~18% chance of a water pit (crate-sized gap)
+    if (roll < 0.18 && last.type === 'ground') {
+      const waterW = 20 + Math.floor(Math.random() * 10); // 20-29 px (box sized)
+      terrain.push({ x: nextX, w: waterW, top: BASE_GROUND + 8, type: 'water' });
+      continue;
+    }
+
+    // Height change
+    let newTop = last.top;
+    const heightRoll = Math.random();
+
+    if (heightRoll < 0.28) {
+      // Rise (hill / platform)
+      newTop = Math.max(140, last.top - (16 + Math.floor(Math.random() * 28)));
+    } else if (heightRoll < 0.50) {
+      // Drop
+      newTop = Math.min(BASE_GROUND, last.top + (12 + Math.floor(Math.random() * 24)));
+    }
+    // else stay same height
+
+    const segW = 50 + Math.floor(Math.random() * 90);
+    terrain.push({ x: nextX, w: segW, top: newTop, type: 'ground' });
+  }
+}
+
+function getTerrainUnder(px) {
+  // Find the terrain segment currently under this x position
+  for (let i = 0; i < terrain.length; i++) {
+    const t = terrain[i];
+    if (px >= t.x && px < t.x + t.w) return t;
+  }
+  return null;
+}
+
+function getGroundY(px) {
+  const t = getTerrainUnder(px);
+  if (!t) return BASE_GROUND + 80; // deep fall
+  if (t.type === 'water') return t.top; // water surface
+  return t.top;
+}
+
+// -------------------- BACKGROUND + TERRAIN DRAW --------------------
+function drawWorld() {
+  // Sky
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  // Far hills (parallax)
   ctx.fillStyle = '#16213e';
-  for (let i = -1; i < 6; i++) {
-    const bx = ((i * 120) - (bgFar % 120));
+  for (let i = -1; i < 7; i++) {
+    const bx = ((i * 130) - (bgFar % 130));
     ctx.beginPath();
-    ctx.moveTo(bx, GROUND_Y);
-    ctx.lineTo(bx + 40, GROUND_Y - 45);
-    ctx.lineTo(bx + 80, GROUND_Y - 25);
-    ctx.lineTo(bx + 120, GROUND_Y);
+    ctx.moveTo(bx, 200);
+    ctx.lineTo(bx + 45, 155);
+    ctx.lineTo(bx + 90, 175);
+    ctx.lineTo(bx + 130, 200);
     ctx.fill();
   }
 
-  for (let i = -1; i < 8; i++) {
-    const tx = ((i * 70) - (bgMid % 70));
-    px(tx + 12, GROUND_Y - 30, 6, 30, '#3d2914');
+  // Mid trees
+  for (let i = -1; i < 9; i++) {
+    const tx = ((i * 75) - (bgMid % 75));
+    px(tx + 14, 170, 6, 50, '#3d2914');
     ctx.fillStyle = '#1b4332';
     ctx.beginPath();
-    ctx.moveTo(tx, GROUND_Y - 28);
-    ctx.lineTo(tx + 15, GROUND_Y - 55);
-    ctx.lineTo(tx + 30, GROUND_Y - 28);
+    ctx.moveTo(tx, 175);
+    ctx.lineTo(tx + 17, 140);
+    ctx.lineTo(tx + 34, 175);
     ctx.fill();
   }
 
-  ctx.fillStyle = '#2d1b0e';
-  ctx.fillRect(0, GROUND_Y, GAME_WIDTH, GAME_HEIGHT - GROUND_Y);
+  // Draw terrain segments
+  for (const t of terrain) {
+    if (t.x + t.w < -10 || t.x > GAME_WIDTH + 10) continue;
 
-  ctx.fillStyle = '#40916c';
-  for (let i = -1; i < 20; i++) {
-    const gx = ((i * 32) - (bgNear % 32));
-    px(gx, GROUND_Y, 30, 4, '#40916c');
-    px(gx + 4, GROUND_Y + 4, 8, 3, '#2d6a4f');
+    if (t.type === 'ground') {
+      // Ground body
+      ctx.fillStyle = '#2d1b0e';
+      ctx.fillRect(t.x, t.top, t.w, GAME_HEIGHT - t.top + 10);
+
+      // Grass top
+      ctx.fillStyle = '#40916c';
+      ctx.fillRect(t.x, t.top, t.w, 5);
+
+      // Little dirt detail
+      ctx.fillStyle = '#3d2914';
+      for (let gx = t.x + 6; gx < t.x + t.w - 4; gx += 18) {
+        px(gx, t.top + 7, 5, 3, '#3d2914');
+      }
+    } else {
+      // Water pit
+      ctx.fillStyle = '#0a3d62';
+      ctx.fillRect(t.x, t.top, t.w, GAME_HEIGHT - t.top + 10);
+
+      // Water surface shimmer
+      ctx.fillStyle = '#1e90ff';
+      ctx.fillRect(t.x, t.top, t.w, 4);
+      ctx.fillStyle = '#4fc3f7';
+      for (let wx = t.x + 3; wx < t.x + t.w; wx += 8) {
+        px(wx, t.top + 1, 3, 2, '#4fc3f7');
+      }
+    }
   }
 }
 
 // -------------------- SPAWN --------------------
 function spawnObstacle() {
+  // Try to place on current upcoming ground
+  const aheadX = GAME_WIDTH + 30;
+  const groundY = getGroundY(aheadX);
+
+  // Don't spawn on water
+  const t = getTerrainUnder(aheadX);
+  if (t && t.type === 'water') return;
+
   const type = Math.random();
   let o;
 
-  if (type < 0.42) {
-    o = { type: 'crate', x: GAME_WIDTH + 20, y: GROUND_Y - 20, w: 20, h: 20 };
-  } else if (type < 0.72) {
-    o = { type: 'spikes', x: GAME_WIDTH + 20, y: GROUND_Y - 12, w: 24, h: 12 };
+  if (type < 0.40) {
+    o = { type: 'crate', x: aheadX, y: groundY - 20, w: 20, h: 20 };
+  } else if (type < 0.70) {
+    o = { type: 'spikes', x: aheadX, y: groundY - 12, w: 24, h: 12 };
   } else {
-    o = { type: 'bird', x: GAME_WIDTH + 20, y: GROUND_Y - 50 - Math.random() * 45, w: 18, h: 12, bob: Math.random() * Math.PI * 2 };
+    o = { type: 'bird', x: aheadX, y: groundY - 55 - Math.random() * 50, w: 18, h: 12, bob: Math.random() * 6 };
   }
   obstacles.push(o);
 }
 
 function spawnCollectible() {
-  const type = Math.random() < 0.75 ? 'coin' : 'heart';
+  const aheadX = GAME_WIDTH + 20;
+  const groundY = getGroundY(aheadX);
+  const type = Math.random() < 0.72 ? 'coin' : 'heart';
+
   collectibles.push({
     type,
-    x: GAME_WIDTH + 20,
-    y: GROUND_Y - 28 - Math.random() * 65,
+    x: aheadX,
+    y: groundY - 30 - Math.random() * 55,
     w: 12,
     h: 12,
     collected: false
@@ -334,7 +399,6 @@ function spawnHitParticles(x, y, color1 = '#ff8800', color2 = '#22cc66') {
 }
 
 function spawnStompParticles(x, y) {
-  // bigger burst + some upward stars
   for (let i = 0; i < 14; i++) {
     particles.push({
       x, y,
@@ -343,6 +407,19 @@ function spawnStompParticles(x, y) {
       life: 20 + Math.random() * 15,
       color: Math.random() > 0.4 ? '#ffee88' : '#ffffff',
       size: 2 + Math.random() * 3
+    });
+  }
+}
+
+function spawnWaterSplash(x, y) {
+  for (let i = 0; i < 12; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 4,
+      vy: -Math.random() * 4 - 1,
+      life: 15 + Math.random() * 10,
+      color: Math.random() > 0.5 ? '#4fc3f7' : '#1e90ff',
+      size: 2 + Math.random() * 2
     });
   }
 }
@@ -358,10 +435,11 @@ function startGame() {
   obstacles = [];
   collectibles = [];
   particles = [];
-  player.y = GROUND_Y;
+  invuln = 0;
+  player.y = BASE_GROUND;
   player.vy = 0;
   player.onGround = true;
-  invuln = 0;
+  initTerrain();
 }
 
 function restartGame() {
@@ -376,21 +454,49 @@ function gameOver() {
 // -------------------- UPDATE --------------------
 function update() {
   frameCount++;
-
   if (state !== 'playing') return;
 
   speed = Math.min(MAX_SPEED, START_SPEED + distance * SPEED_INCREASE);
+
+  // Generate more terrain as needed
+  generateMoreTerrain();
+
+  // Scroll everything
+  for (const t of terrain) t.x -= speed;
+  // Clean old terrain
+  while (terrain.length > 0 && terrain[0].x + terrain[0].w < -60) {
+    terrain.shift();
+  }
 
   // Physics
   player.vy += GRAVITY;
   player.y += player.vy;
 
-  if (player.y >= GROUND_Y) {
-    player.y = GROUND_Y;
+  // Terrain collision
+  const groundY = getGroundY(player.x + player.w / 2);
+  const under = getTerrainUnder(player.x + player.w / 2);
+
+  if (player.y >= groundY) {
+    player.y = groundY;
     player.vy = 0;
     player.onGround = true;
+
+    // Water damage
+    if (under && under.type === 'water' && invuln <= 0) {
+      lives--;
+      invuln = 50;
+      spawnWaterSplash(player.x + 8, player.y - 4);
+      sfxWater();
+      if (lives <= 0) gameOver();
+    }
   } else {
     player.onGround = false;
+  }
+
+  // Fall death (too deep)
+  if (player.y > GAME_HEIGHT + 30) {
+    lives = 0;
+    gameOver();
   }
 
   // Animation
@@ -405,27 +511,22 @@ function update() {
   }
 
   // Parallax
-  bgFar += speed * 0.15;
-  bgMid += speed * 0.4;
-  bgNear += speed * 1.0;
+  bgFar += speed * 0.12;
+  bgMid += speed * 0.35;
+  bgNear += speed * 0.9;
 
   distance += speed * 0.15;
   score = Math.floor(distance) + coins * 15;
 
   // Spawn
-  if (frameCount % Math.max(38, 85 - Math.floor(speed * 6)) === 0) {
-    spawnObstacle();
-  }
-  if (frameCount % 68 === 0) {
-    spawnCollectible();
-  }
+  if (frameCount % Math.max(40, 88 - Math.floor(speed * 6)) === 0) spawnObstacle();
+  if (frameCount % 70 === 0) spawnCollectible();
 
-  // ---- Obstacles ----
+  // Obstacles
   for (let i = obstacles.length - 1; i >= 0; i--) {
     const o = obstacles[i];
     o.x -= speed;
 
-    // Broad collision check first
     const colliding =
       player.x < o.x + o.w &&
       player.x + player.w > o.x &&
@@ -433,16 +534,11 @@ function update() {
       player.y > o.y;
 
     if (colliding && invuln <= 0) {
-
-      // ===== Mario-style bird stomp =====
       if (o.type === 'bird') {
-        const birdMid = o.y + o.h * 0.45; // top ~45% is stomp zone
-
-        // Player is falling and feet are near the top of the bird
+        const birdMid = o.y + o.h * 0.45;
         if (player.vy > 0 && player.y < birdMid + 8) {
-          // STOMP!
           obstacles.splice(i, 1);
-          player.vy = -6.5;           // nice little bounce
+          player.vy = -6.8;
           score += 50;
           spawnStompParticles(o.x + o.w / 2, o.y + 4);
           sfxStomp();
@@ -450,7 +546,6 @@ function update() {
         }
       }
 
-      // Normal damage (crates, spikes, or bottom of bird)
       lives--;
       invuln = 55;
       spawnHitParticles(player.x + 8, player.y - 12);
@@ -458,10 +553,10 @@ function update() {
       if (lives <= 0) gameOver();
     }
 
-    if (o.x + o.w < -20) obstacles.splice(i, 1);
+    if (o.x + o.w < -30) obstacles.splice(i, 1);
   }
 
-  // ---- Collectibles ----
+  // Collectibles
   for (let i = collectibles.length - 1; i >= 0; i--) {
     const c = collectibles[i];
     c.x -= speed;
@@ -471,7 +566,6 @@ function update() {
         player.x + player.w > c.x &&
         player.y - player.h < c.y + c.h &&
         player.y > c.y) {
-
       c.collected = true;
       if (c.type === 'coin') {
         coins++;
@@ -483,7 +577,7 @@ function update() {
       spawnHitParticles(c.x + 6, c.y + 6, '#ffd700', '#ffee88');
     }
 
-    if (c.x + c.w < -10 || c.collected) collectibles.splice(i, 1);
+    if (c.x + c.w < -15 || c.collected) collectibles.splice(i, 1);
   }
 
   // Particles
@@ -501,20 +595,15 @@ function update() {
 
 // -------------------- DRAW --------------------
 function draw() {
-  ctx.fillStyle = '#0a0a12';
-  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-
-  drawBackground();
+  drawWorld();
 
   obstacles.forEach(drawObstacle);
   collectibles.forEach(drawCollectible);
 
-  // Particles with size
   particles.forEach(p => {
     px(p.x, p.y, p.size || 3, p.size || 3, p.color);
   });
 
-  // Player
   if (invuln <= 0 || Math.floor(invuln / 4) % 2 === 0) {
     drawFox(player.x, player.y - 24, player.animFrame, 1);
   }
@@ -531,7 +620,6 @@ function draw() {
     px(GAME_WIDTH - 16 - i * 14, 11, 6, 5, '#ff3366');
   }
 
-  // Screens
   if (state === 'start') {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
@@ -549,9 +637,9 @@ function draw() {
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '11px Courier New';
-    ctx.fillText('SPACE / TAP TO START', GAME_WIDTH / 2, 220);
+    ctx.fillText('SPACE / TAP TO START', GAME_WIDTH / 2, 215);
     ctx.font = '9px Courier New';
-    ctx.fillText('Jump • Stomp birds • Collect coins & hearts', GAME_WIDTH / 2, 240);
+    ctx.fillText('Hills • Platforms • Water pits • Stomp birds', GAME_WIDTH / 2, 235);
     ctx.textAlign = 'left';
   }
 
