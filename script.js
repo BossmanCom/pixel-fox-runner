@@ -453,30 +453,30 @@ function update() {
   player.vy += GRAVITY;
   player.y += player.vy;
 
-  // Use RIGHT EDGE of the hitbox for wall detection (front of the fox)
-  // This catches the wall the moment it touches her instead of waiting for the center
-  const frontX = player.x + player.w - 1;
-  const groundAtFront = getGroundY(frontX);
-  const heightDiffFront = player.lockedGroundY - groundAtFront;
+  // Look a few pixels AHEAD of the front of her hitbox
+  // so we can stop before the wall actually reaches her
+  const lookAheadX = player.x + player.w + 6;
+  const groundAhead = getGroundY(lookAheadX);
+  const heightDiffAhead = player.lockedGroundY - groundAhead;
 
-  // Still use center for normal standing / landing feel
+  // Center for normal standing
   const midX = player.x + player.w * 0.5;
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
   // ========== SOLID TERRAIN + WALL STOP RULE ==========
-  // Check the front of her body first so she stops the instant the wall touches her
+  // Detect rising wall a few pixels in front so we stop BEFORE it touches her.
+  // Do NOT snap her Y up — leave her pressed against the side.
 
-  if (heightDiffFront > 5 && player.onGround) {
-    // Rising wall just touched the front of her hitbox → STOP
-    player.y = groundAtFront;
+  if (heightDiffAhead > 5 && player.onGround && !player.stuckOnWall) {
+    // Rising wall is about to hit her → STOP the world, keep her current height
     player.vy = 0;
     player.onGround = true;
-    player.lockedGroundY = groundAtFront;
     player.stuckOnWall = true;
     speed = 0;
+    // deliberately do NOT change player.y or lockedGroundY
   } else if (player.y >= groundUnder - 1) {
-    // Normal landing or tiny step (using center)
+    // Normal landing or tiny step
     player.y = groundUnder;
     player.vy = 0;
     player.onGround = true;
