@@ -35,7 +35,7 @@ let frameCount = 0;
 // -------------------- PLAYER --------------------
 const player = {
   x: 70,
-  y: GROUND_Y,
+  y: GROUND_Y,                   // y = feet / bottom of sprite
   w: 16,
   h: 24,
   vy: 0,
@@ -55,8 +55,6 @@ let bgMid = 0;
 let bgNear = 0;
 
 // -------------------- INPUT --------------------
-let jumpPressed = false;
-
 function onJump() {
   if (state === 'start') {
     startGame();
@@ -99,7 +97,6 @@ window.addEventListener('resize', resize);
 resize();
 
 // -------------------- SPRITE DRAWING (pure pixel art) --------------------
-// Limited palette
 const C = {
   skin: '#ffccaa',
   hair: '#22cc66',
@@ -113,13 +110,13 @@ const C = {
   tail: '#cc6622'
 };
 
-// Draw a single pixel-perfect rect (helps keep everything on the grid)
 function px(x, y, w, h, color) {
   ctx.fillStyle = color;
   ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
 }
 
 // Main character drawer – 16×24 pixel fox girl
+// pxY is the TOP of the sprite
 function drawFox(pxX, pxY, frame, scale = 1) {
   const s = scale;
   const x = Math.floor(pxX);
@@ -139,7 +136,7 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   // Ears (hood ears)
   px(x + 2*s, y + 1*s, 4*s, 5*s, C.onesie);
   px(x + 10*s, y + 1*s, 4*s, 5*s, C.onesie);
-  px(x + 3*s, y + 2*s, 2*s, 3*s, C.white);   // white tip
+  px(x + 3*s, y + 2*s, 2*s, 3*s, C.white);
   px(x + 11*s, y + 2*s, 2*s, 3*s, C.white);
 
   // Face
@@ -154,7 +151,7 @@ function drawFox(pxX, pxY, frame, scale = 1) {
   // Eyes
   px(x + 5*s, y + 7*s, 2*s, 2*s, C.purple);
   px(x + 9*s, y + 7*s, 2*s, 2*s, C.purple);
-  px(x + 5*s, y + 7*s, 1*s, 1*s, C.white); // sparkle
+  px(x + 5*s, y + 7*s, 1*s, 1*s, C.white);
   px(x + 9*s, y + 7*s, 1*s, 1*s, C.white);
 
   // Legs – different per frame
@@ -393,15 +390,15 @@ function update() {
     const o = obstacles[i];
     o.x -= speed;
 
-    // Collision
+    // Collision  (player.y is the BOTTOM / feet of the hitbox)
     if (invuln <= 0 &&
         player.x < o.x + o.w &&
         player.x + player.w > o.x &&
-        player.y < o.y + o.h &&
-        player.y + player.h > o.y) {
+        player.y - player.h < o.y + o.h &&   // player's top < obstacle bottom
+        player.y > o.y) {                    // player's bottom > obstacle top
       lives--;
       invuln = 60;
-      spawnHitParticles(player.x + 8, player.y + 12);
+      spawnHitParticles(player.x + 8, player.y - 12);
       if (lives <= 0) gameOver();
     }
 
@@ -416,8 +413,8 @@ function update() {
     if (!c.collected &&
         player.x < c.x + c.w &&
         player.x + player.w > c.x &&
-        player.y < c.y + c.h &&
-        player.y + player.h > c.y) {
+        player.y - player.h < c.y + c.h &&
+        player.y > c.y) {
       c.collected = true;
       if (c.type === 'coin') {
         coins++;
@@ -461,6 +458,7 @@ function draw() {
   });
 
   // Player (blink when invulnerable)
+  // player.y is feet, so draw top at player.y - h
   if (invuln <= 0 || Math.floor(invuln / 4) % 2 === 0) {
     drawFox(player.x, player.y - 24, player.animFrame, 1);
   }
