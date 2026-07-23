@@ -1,5 +1,5 @@
 // ============================================================
-// Pixel Fox Runner - Infinite Runner
+// Pixel Fox Runner - Manual Platformer
 // Pure HTML5 Canvas + vanilla JS
 // 8-bit style fox girl (Ani)
 // ============================================================
@@ -14,11 +14,11 @@ const GAME_HEIGHT = 270;
 const BASE_GROUND = 220;
 const GRAVITY = 0.55;
 const JUMP_FORCE = -10.5;
-const START_SPEED = 2.8;
-const MAX_SPEED = 9.2;
-const SPEED_INCREASE = 0.00032;
+const MOVE_SPEED = 3.2;
+const MAX_FALL = 12;
 
 let canvasScale = 1;
+let cameraX = 0;
 
 // -------------------- AUDIO --------------------
 let audioCtx = null;
@@ -69,7 +69,6 @@ let distance = 0;
 let coins = 0;
 let lives = 3;
 let invuln = 0;
-let speed = START_SPEED;
 let frameCount = 0;
 
 // -------------------- PLAYER --------------------
@@ -78,46 +77,71 @@ const player = {
   y: BASE_GROUND,
   w: 16,
   h: 24,
+  vx: 0,
   vy: 0,
   onGround: true,
-  lockedGroundY: BASE_GROUND,
-  stuckOnWall: false,
+  facing: 1, // 1 = right, -1 = left
   animFrame: 0,
   animTimer: 0
 };
 
-// -------------------- WORLD --------------------
-let obstacles = [];
-let collectibles = [];
-let particles = [];
-let terrain = [];
-
-let bgFar = 0;
-let bgMid = 0;
-let bgNear = 0;
-
 // -------------------- INPUT --------------------
+const keys = {
+  left: false,
+  right: false,
+  jump: false
+};
+
 function onJump() {
   initAudio();
   if (state === 'start') { startGame(); return; }
   if (state === 'gameover') { restartGame(); return; }
-  if (state === 'playing' && (player.onGround || player.stuckOnWall)) {
+  if (state === 'playing' && player.onGround) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
-    player.stuckOnWall = false;   // clear the wall stop
     sfxJump();
   }
 }
 
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' || e.code === 'ArrowUp') {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') { keys.left = true; e.preventDefault(); }
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') { keys.right = true; e.preventDefault(); }
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
     e.preventDefault();
     onJump();
   }
 });
+
+window.addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+});
+
+// Simple touch controls: left half = left, right half = right, but also allow jump on any tap when grounded
+let touchLeft = false;
+let touchRight = false;
+
 canvas.addEventListener('pointerdown', e => {
   e.preventDefault();
-  onJump();
+  const rect = canvas.getBoundingClientRect();
+  const tx = (e.clientX - rect.left) / canvasScale;
+  if (tx < GAME_WIDTH * 0.4) {
+    touchLeft = true;
+  } else if (tx > GAME_WIDTH * 0.6) {
+    touchRight = true;
+  } else {
+    onJump();
+  }
+});
+
+canvas.addEventListener('pointerup', e => {
+  touchLeft = false;
+  touchRight = false;
+});
+
+canvas.addEventListener('pointercancel', e => {
+  touchLeft = false;
+  touchRight = false;
 });
 
 // -------------------- RESIZE --------------------
@@ -144,71 +168,108 @@ function px(x, y, w, h, color) {
   ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
 }
 
-function drawFox(pxX, pxY, frame, scale = 1) {
+function drawFox(pxX, pxY, frame, scale = 1, facing = 1) {
   const s = scale;
   const x = Math.floor(pxX);
   const y = Math.floor(pxY);
 
-  px(x - 4*s, y + 12*s, 6*s, 4*s, C.tail);
-  px(x - 6*s, y + 10*s, 4*s, 4*s, C.tail);
-
-  px(x + 3*s, y + 10*s, 10*s, 10*s, C.onesie);
-  px(x + 2*s, y + 11*s, 12*s, 8*s, C.onesie);
-  px(x + 2*s, y + 4*s, 12*s, 8*s, C.onesie);
-  px(x + 1*s, y + 5*s, 14*s, 6*s, C.onesie);
-
-  px(x + 2*s, y + 1*s, 4*s, 5*s, C.onesie);
-  px(x + 10*s, y + 1*s, 4*s, 5*s, C.onesie);
-  px(x + 3*s, y + 2*s, 2*s, 3*s, C.white);
-  px(x + 11*s, y + 2*s, 2*s, 3*s, C.white);
-
-  px(x + 4*s, y + 6*s, 8*s, 6*s, C.skin);
-
-  px(x + 1*s, y + 5*s, 3*s, 8*s, C.hair);
-  px(x + 12*s, y + 5*s, 3*s, 8*s, C.hair);
-  px(x + 0*s, y + 7*s, 2*s, 6*s, C.hairDark);
-  px(x + 14*s, y + 7*s, 2*s, 6*s, C.hairDark);
-
-  px(x + 5*s, y + 7*s, 2*s, 2*s, C.purple);
-  px(x + 9*s, y + 7*s, 2*s, 2*s, C.purple);
-  px(x + 5*s, y + 7*s, 1*s, 1*s, C.white);
-  px(x + 9*s, y + 7*s, 1*s, 1*s, C.white);
-
-  if (frame === 0) {
-    px(x + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
-    px(x + 9*s, y + 20*s, 3*s, 4*s, C.onesie);
-  } else if (frame === 1) {
-    px(x + 3*s, y + 19*s, 3*s, 5*s, C.onesie);
-    px(x + 10*s, y + 20*s, 3*s, 4*s, C.onesie);
-  } else if (frame === 2) {
-    px(x + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
-    px(x + 9*s, y + 19*s, 3*s, 5*s, C.onesie);
+  // Simple flip by drawing mirrored when facing left
+  ctx.save();
+  if (facing < 0) {
+    ctx.translate(x + 16 * s, 0);
+    ctx.scale(-1, 1);
+    px(0 - 4*s, y + 12*s, 6*s, 4*s, C.tail);
+    px(0 - 6*s, y + 10*s, 4*s, 4*s, C.tail);
+    px(0 + 3*s, y + 10*s, 10*s, 10*s, C.onesie);
+    px(0 + 2*s, y + 11*s, 12*s, 8*s, C.onesie);
+    px(0 + 2*s, y + 4*s, 12*s, 8*s, C.onesie);
+    px(0 + 1*s, y + 5*s, 14*s, 6*s, C.onesie);
+    px(0 + 2*s, y + 1*s, 4*s, 5*s, C.onesie);
+    px(0 + 10*s, y + 1*s, 4*s, 5*s, C.onesie);
+    px(0 + 3*s, y + 2*s, 2*s, 3*s, C.white);
+    px(0 + 11*s, y + 2*s, 2*s, 3*s, C.white);
+    px(0 + 4*s, y + 6*s, 8*s, 6*s, C.skin);
+    px(0 + 1*s, y + 5*s, 3*s, 8*s, C.hair);
+    px(0 + 12*s, y + 5*s, 3*s, 8*s, C.hair);
+    px(0 + 0*s, y + 7*s, 2*s, 6*s, C.hairDark);
+    px(0 + 14*s, y + 7*s, 2*s, 6*s, C.hairDark);
+    px(0 + 5*s, y + 7*s, 2*s, 2*s, C.purple);
+    px(0 + 9*s, y + 7*s, 2*s, 2*s, C.purple);
+    px(0 + 5*s, y + 7*s, 1*s, 1*s, C.white);
+    px(0 + 9*s, y + 7*s, 1*s, 1*s, C.white);
+    if (frame === 0) {
+      px(0 + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
+      px(0 + 9*s, y + 20*s, 3*s, 4*s, C.onesie);
+    } else if (frame === 1) {
+      px(0 + 3*s, y + 19*s, 3*s, 5*s, C.onesie);
+      px(0 + 10*s, y + 20*s, 3*s, 4*s, C.onesie);
+    } else if (frame === 2) {
+      px(0 + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
+      px(0 + 9*s, y + 19*s, 3*s, 5*s, C.onesie);
+    } else {
+      px(0 + 3*s, y + 18*s, 4*s, 4*s, C.onesie);
+      px(0 + 9*s, y + 18*s, 4*s, 4*s, C.onesie);
+    }
+    px(0 + 4*s, y + 23*s, 3*s, 1*s, C.white);
+    px(0 + 9*s, y + 23*s, 3*s, 1*s, C.white);
   } else {
-    px(x + 3*s, y + 18*s, 4*s, 4*s, C.onesie);
-    px(x + 9*s, y + 18*s, 4*s, 4*s, C.onesie);
+    px(x - 4*s, y + 12*s, 6*s, 4*s, C.tail);
+    px(x - 6*s, y + 10*s, 4*s, 4*s, C.tail);
+    px(x + 3*s, y + 10*s, 10*s, 10*s, C.onesie);
+    px(x + 2*s, y + 11*s, 12*s, 8*s, C.onesie);
+    px(x + 2*s, y + 4*s, 12*s, 8*s, C.onesie);
+    px(x + 1*s, y + 5*s, 14*s, 6*s, C.onesie);
+    px(x + 2*s, y + 1*s, 4*s, 5*s, C.onesie);
+    px(x + 10*s, y + 1*s, 4*s, 5*s, C.onesie);
+    px(x + 3*s, y + 2*s, 2*s, 3*s, C.white);
+    px(x + 11*s, y + 2*s, 2*s, 3*s, C.white);
+    px(x + 4*s, y + 6*s, 8*s, 6*s, C.skin);
+    px(x + 1*s, y + 5*s, 3*s, 8*s, C.hair);
+    px(x + 12*s, y + 5*s, 3*s, 8*s, C.hair);
+    px(x + 0*s, y + 7*s, 2*s, 6*s, C.hairDark);
+    px(x + 14*s, y + 7*s, 2*s, 6*s, C.hairDark);
+    px(x + 5*s, y + 7*s, 2*s, 2*s, C.purple);
+    px(x + 9*s, y + 7*s, 2*s, 2*s, C.purple);
+    px(x + 5*s, y + 7*s, 1*s, 1*s, C.white);
+    px(x + 9*s, y + 7*s, 1*s, 1*s, C.white);
+    if (frame === 0) {
+      px(x + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
+      px(x + 9*s, y + 20*s, 3*s, 4*s, C.onesie);
+    } else if (frame === 1) {
+      px(x + 3*s, y + 19*s, 3*s, 5*s, C.onesie);
+      px(x + 10*s, y + 20*s, 3*s, 4*s, C.onesie);
+    } else if (frame === 2) {
+      px(x + 4*s, y + 20*s, 3*s, 4*s, C.onesie);
+      px(x + 9*s, y + 19*s, 3*s, 5*s, C.onesie);
+    } else {
+      px(x + 3*s, y + 18*s, 4*s, 4*s, C.onesie);
+      px(x + 9*s, y + 18*s, 4*s, 4*s, C.onesie);
+    }
+    px(x + 4*s, y + 23*s, 3*s, 1*s, C.white);
+    px(x + 9*s, y + 23*s, 3*s, 1*s, C.white);
   }
-
-  px(x + 4*s, y + 23*s, 3*s, 1*s, C.white);
-  px(x + 9*s, y + 23*s, 3*s, 1*s, C.white);
+  ctx.restore();
 }
 
 // -------------------- TERRAIN --------------------
+let terrain = [];
+
 function initTerrain() {
   terrain = [];
-  terrain.push({ x: -40, w: 180, top: BASE_GROUND, type: 'ground' });
+  terrain.push({ x: -80, w: 280, top: BASE_GROUND, type: 'ground' });
   generateMoreTerrain();
 }
 
 function generateMoreTerrain() {
   while (true) {
     const last = terrain[terrain.length - 1];
-    if (last.x + last.w > GAME_WIDTH + 450) break;
+    if (last.x + last.w > cameraX + GAME_WIDTH + 500) break;
 
     const nextX = last.x + last.w;
     const roll = Math.random();
 
-    if (roll < 0.22 && last.type === 'ground') {
-      const waterW = 22 + Math.floor(Math.random() * 12);
+    if (roll < 0.20 && last.type === 'ground') {
+      const waterW = 22 + Math.floor(Math.random() * 14);
       terrain.push({ x: nextX, w: waterW, top: BASE_GROUND + 6, type: 'water' });
       continue;
     }
@@ -216,14 +277,14 @@ function generateMoreTerrain() {
     let newTop = last.top;
     const heightRoll = Math.random();
 
-    if (heightRoll < 0.38) {
+    if (heightRoll < 0.36) {
       newTop = Math.max(130, last.top - (22 + Math.floor(Math.random() * 36)));
-    } else if (heightRoll < 0.62) {
+    } else if (heightRoll < 0.60) {
       newTop = Math.min(BASE_GROUND, last.top + (18 + Math.floor(Math.random() * 30)));
     }
 
     newTop = Math.max(125, Math.min(BASE_GROUND, newTop));
-    const segW = 40 + Math.floor(Math.random() * 80);
+    const segW = 40 + Math.floor(Math.random() * 90);
     terrain.push({ x: nextX, w: segW, top: newTop, type: 'ground' });
   }
 }
@@ -239,65 +300,16 @@ function getTerrainUnder(px) {
 function getGroundY(px) {
   const t = getTerrainUnder(px);
   if (!t) return BASE_GROUND + 90;
-  if (t.type === 'water') return t.top;
   return t.top;
 }
 
-// -------------------- DRAW WORLD --------------------
-function drawWorld() {
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+// -------------------- WORLD OBJECTS --------------------
+let obstacles = [];
+let collectibles = [];
+let particles = [];
 
-  ctx.fillStyle = '#16213e';
-  for (let i = -1; i < 7; i++) {
-    const bx = ((i * 130) - (bgFar % 130));
-    ctx.beginPath();
-    ctx.moveTo(bx, 200);
-    ctx.lineTo(bx + 45, 155);
-    ctx.lineTo(bx + 90, 175);
-    ctx.lineTo(bx + 130, 200);
-    ctx.fill();
-  }
-
-  for (let i = -1; i < 9; i++) {
-    const tx = ((i * 75) - (bgMid % 75));
-    px(tx + 14, 170, 6, 50, '#3d2914');
-    ctx.fillStyle = '#1b4332';
-    ctx.beginPath();
-    ctx.moveTo(tx, 175);
-    ctx.lineTo(tx + 17, 140);
-    ctx.lineTo(tx + 34, 175);
-    ctx.fill();
-  }
-
-  for (const t of terrain) {
-    if (t.x + t.w < -10 || t.x > GAME_WIDTH + 10) continue;
-
-    if (t.type === 'ground') {
-      ctx.fillStyle = '#2d1b0e';
-      ctx.fillRect(t.x, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
-      ctx.fillStyle = '#40916c';
-      ctx.fillRect(t.x, t.top, t.w + 1, 6);
-      ctx.fillStyle = '#3d2914';
-      for (let gx = t.x + 8; gx < t.x + t.w - 4; gx += 16) {
-        px(gx, t.top + 8, 5, 3, '#3d2914');
-      }
-    } else {
-      ctx.fillStyle = '#0a3d62';
-      ctx.fillRect(t.x, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
-      ctx.fillStyle = '#1e90ff';
-      ctx.fillRect(t.x, t.top, t.w + 1, 5);
-      ctx.fillStyle = '#4fc3f7';
-      for (let wx = t.x + 2; wx < t.x + t.w; wx += 7) {
-        px(wx, t.top + 1, 3, 2, '#4fc3f7');
-      }
-    }
-  }
-}
-
-// -------------------- SPAWN --------------------
 function spawnObstacle() {
-  const aheadX = GAME_WIDTH + 30;
+  const aheadX = cameraX + GAME_WIDTH + 40;
   const t = getTerrainUnder(aheadX);
   if (t && t.type === 'water') return;
 
@@ -316,7 +328,7 @@ function spawnObstacle() {
 }
 
 function spawnCollectible() {
-  const aheadX = GAME_WIDTH + 20;
+  const aheadX = cameraX + GAME_WIDTH + 30;
   const groundY = getGroundY(aheadX);
   const type = Math.random() < 0.72 ? 'coin' : 'heart';
 
@@ -330,48 +342,105 @@ function spawnCollectible() {
   });
 }
 
-// -------------------- DRAW OBJECTS --------------------
+// -------------------- DRAW WORLD --------------------
+function drawWorld() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  // Parallax mountains
+  ctx.fillStyle = '#16213e';
+  for (let i = -1; i < 8; i++) {
+    const bx = ((i * 130) - (cameraX * 0.15 % 130));
+    ctx.beginPath();
+    ctx.moveTo(bx, 200);
+    ctx.lineTo(bx + 45, 155);
+    ctx.lineTo(bx + 90, 175);
+    ctx.lineTo(bx + 130, 200);
+    ctx.fill();
+  }
+
+  // Trees
+  for (let i = -1; i < 10; i++) {
+    const tx = ((i * 75) - (cameraX * 0.4 % 75));
+    px(tx + 14, 170, 6, 50, '#3d2914');
+    ctx.fillStyle = '#1b4332';
+    ctx.beginPath();
+    ctx.moveTo(tx, 175);
+    ctx.lineTo(tx + 17, 140);
+    ctx.lineTo(tx + 34, 175);
+    ctx.fill();
+  }
+
+  // Terrain
+  for (const t of terrain) {
+    const sx = t.x - cameraX;
+    if (sx + t.w < -20 || sx > GAME_WIDTH + 20) continue;
+
+    if (t.type === 'ground') {
+      ctx.fillStyle = '#2d1b0e';
+      ctx.fillRect(sx, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
+      ctx.fillStyle = '#40916c';
+      ctx.fillRect(sx, t.top, t.w + 1, 6);
+      ctx.fillStyle = '#3d2914';
+      for (let gx = sx + 8; gx < sx + t.w - 4; gx += 16) {
+        px(gx, t.top + 8, 5, 3, '#3d2914');
+      }
+    } else {
+      ctx.fillStyle = '#0a3d62';
+      ctx.fillRect(sx, t.top, t.w + 1, GAME_HEIGHT - t.top + 12);
+      ctx.fillStyle = '#1e90ff';
+      ctx.fillRect(sx, t.top, t.w + 1, 5);
+      ctx.fillStyle = '#4fc3f7';
+      for (let wx = sx + 2; wx < sx + t.w; wx += 7) {
+        px(wx, t.top + 1, 3, 2, '#4fc3f7');
+      }
+    }
+  }
+}
+
 function drawObstacle(o) {
+  const sx = o.x - cameraX;
   if (o.type === 'crate') {
-    px(o.x, o.y, o.w, o.h, '#8B4513');
-    px(o.x + 2, o.y + 2, o.w - 4, o.h - 4, '#A0522D');
+    px(sx, o.y, o.w, o.h, '#8B4513');
+    px(sx + 2, o.y + 2, o.w - 4, o.h - 4, '#A0522D');
     ctx.strokeStyle = '#5c3317';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(o.x + 4, o.y + 4);
-    ctx.lineTo(o.x + o.w - 4, o.y + o.h - 4);
-    ctx.moveTo(o.x + o.w - 4, o.y + 4);
-    ctx.lineTo(o.x + 4, o.y + o.h - 4);
+    ctx.moveTo(sx + 4, o.y + 4);
+    ctx.lineTo(sx + o.w - 4, o.y + o.h - 4);
+    ctx.moveTo(sx + o.w - 4, o.y + 4);
+    ctx.lineTo(sx + 4, o.y + o.h - 4);
     ctx.stroke();
   } else if (o.type === 'spikes') {
     ctx.fillStyle = '#555';
     for (let i = 0; i < 4; i++) {
       ctx.beginPath();
-      ctx.moveTo(o.x + i * 6, o.y + o.h);
-      ctx.lineTo(o.x + i * 6 + 3, o.y);
-      ctx.lineTo(o.x + i * 6 + 6, o.y + o.h);
+      ctx.moveTo(sx + i * 6, o.y + o.h);
+      ctx.lineTo(sx + i * 6 + 3, o.y);
+      ctx.lineTo(sx + i * 6 + 6, o.y + o.h);
       ctx.fill();
     }
   } else if (o.type === 'bird') {
     o.bob += 0.15;
     const by = o.y + Math.sin(o.bob) * 4;
-    px(o.x, by + 4, 14, 6, '#222');
-    px(o.x + 10, by + 2, 6, 4, '#222');
-    px(o.x + 2, by + 2, 4, 2, '#fff');
-    px(o.x + 4, by, 8, 3, '#444');
+    px(sx, by + 4, 14, 6, '#222');
+    px(sx + 10, by + 2, 6, 4, '#222');
+    px(sx + 2, by + 2, 4, 2, '#fff');
+    px(sx + 4, by, 8, 3, '#444');
   }
 }
 
 function drawCollectible(c) {
   if (c.collected) return;
+  const sx = c.x - cameraX;
   if (c.type === 'coin') {
-    px(c.x, c.y, 12, 12, '#ffd700');
-    px(c.x + 2, c.y + 2, 8, 8, '#ffec8b');
-    px(c.x + 4, c.y + 4, 4, 4, '#ffd700');
+    px(sx, c.y, 12, 12, '#ffd700');
+    px(sx + 2, c.y + 2, 8, 8, '#ffec8b');
+    px(sx + 4, c.y + 4, 4, 4, '#ffd700');
   } else {
-    px(c.x + 1, c.y + 3, 4, 4, '#ff3366');
-    px(c.x + 7, c.y + 3, 4, 4, '#ff3366');
-    px(c.x + 3, c.y + 5, 6, 6, '#ff3366');
+    px(sx + 1, c.y + 3, 4, 4, '#ff3366');
+    px(sx + 7, c.y + 3, 4, 4, '#ff3366');
+    px(sx + 3, c.y + 5, 6, 6, '#ff3366');
   }
 }
 
@@ -408,16 +477,17 @@ function startGame() {
   distance = 0;
   coins = 0;
   lives = 3;
-  speed = START_SPEED;
+  invuln = 0;
+  cameraX = 0;
+  player.x = 70;
+  player.y = BASE_GROUND;
+  player.vx = 0;
+  player.vy = 0;
+  player.onGround = true;
+  player.facing = 1;
   obstacles = [];
   collectibles = [];
   particles = [];
-  invuln = 0;
-  player.y = BASE_GROUND;
-  player.vy = 0;
-  player.onGround = true;
-  player.lockedGroundY = BASE_GROUND;
-  player.stuckOnWall = false;
   initTerrain();
   playStartJingle();
 }
@@ -436,52 +506,55 @@ function update() {
   frameCount++;
   if (state !== 'playing') return;
 
-  // Base speed from distance
-  speed = Math.min(MAX_SPEED, START_SPEED + distance * SPEED_INCREASE);
+  // Horizontal input
+  let move = 0;
+  if (keys.left || touchLeft) move -= 1;
+  if (keys.right || touchRight) move += 1;
 
-  // If stuck on a wall, force complete stop until she jumps
-  if (player.stuckOnWall) {
-    speed = 0;
+  player.vx = move * MOVE_SPEED;
+  if (move !== 0) player.facing = move;
+
+  // Apply gravity
+  player.vy += GRAVITY;
+  if (player.vy > MAX_FALL) player.vy = MAX_FALL;
+
+  // Horizontal move + side collision against rising walls
+  const oldX = player.x;
+  player.x += player.vx;
+
+  // Check for solid wall in the direction of movement
+  if (player.vx > 0) {
+    // Moving right - check the right edge
+    const checkX = player.x + player.w;
+    const groundAtCheck = getGroundY(checkX);
+    const groundAtFeet = getGroundY(player.x + player.w * 0.5);
+
+    // If the ground ahead is significantly higher, block
+    if (groundAtCheck < groundAtFeet - 6 && player.y > groundAtCheck + 2) {
+      // Hit a wall face
+      player.x = oldX;
+      player.vx = 0;
+    }
+  } else if (player.vx < 0) {
+    // Moving left - simple left bound for now
+    if (player.x < cameraX - 20) {
+      player.x = cameraX - 20;
+      player.vx = 0;
+    }
   }
 
-  generateMoreTerrain();
-
-  for (const t of terrain) t.x -= speed;
-  while (terrain.length > 0 && terrain[0].x + terrain[0].w < -60) terrain.shift();
-
-  // Physics
-  player.vy += GRAVITY;
+  // Vertical move
   player.y += player.vy;
 
-  // Look a few pixels AHEAD of the front of her hitbox
-  // so we can stop before the wall actually reaches her
-  const lookAheadX = player.x + player.w + 6;
-  const groundAhead = getGroundY(lookAheadX);
-  const heightDiffAhead = player.lockedGroundY - groundAhead;
-
-  // Center for normal standing
+  // Ground collision
   const midX = player.x + player.w * 0.5;
   const groundUnder = getGroundY(midX);
   const under = getTerrainUnder(midX);
 
-  // ========== SOLID TERRAIN + WALL STOP RULE ==========
-  // Detect rising wall a few pixels in front so we stop BEFORE it touches her.
-  // Do NOT snap her Y up — leave her pressed against the side.
-
-  if (heightDiffAhead > 5 && player.onGround && !player.stuckOnWall) {
-    // Rising wall is about to hit her → STOP the world, keep her current height
-    player.vy = 0;
-    player.onGround = true;
-    player.stuckOnWall = true;
-    speed = 0;
-    // deliberately do NOT change player.y or lockedGroundY
-  } else if (player.y >= groundUnder - 1) {
-    // Normal landing or tiny step
+  if (player.y >= groundUnder - 1) {
     player.y = groundUnder;
     player.vy = 0;
     player.onGround = true;
-    player.lockedGroundY = groundUnder;
-    player.stuckOnWall = false;
 
     if (under && under.type === 'water' && invuln <= 0) {
       lives--;
@@ -491,40 +564,50 @@ function update() {
       if (lives <= 0) gameOver();
     }
   } else {
-    // Still in the air
     player.onGround = false;
   }
 
-  if (player.y > GAME_HEIGHT + 40) {
+  // Camera follows player (keeps her near left-center)
+  const targetCam = player.x - 110;
+  cameraX += (targetCam - cameraX) * 0.12;
+  if (cameraX < 0) cameraX = 0;
+
+  // Generate more world
+  generateMoreTerrain();
+  while (terrain.length > 0 && terrain[0].x + terrain[0].w < cameraX - 200) {
+    terrain.shift();
+  }
+
+  // Fall death
+  if (player.y > GAME_HEIGHT + 60) {
     lives = 0;
     gameOver();
   }
 
   // Animation
   player.animTimer++;
-  if (player.onGround) {
-    if (player.animTimer > 6) {
+  if (player.onGround && Math.abs(player.vx) > 0.1) {
+    if (player.animTimer > 5) {
       player.animTimer = 0;
       player.animFrame = (player.animFrame + 1) % 3;
     }
-  } else {
+  } else if (!player.onGround) {
     player.animFrame = 3;
+  } else {
+    player.animFrame = 0;
   }
 
-  bgFar += speed * 0.12;
-  bgMid += speed * 0.35;
-  bgNear += speed * 0.9;
-
-  distance += speed * 0.15;
+  // Score / distance
+  distance = Math.max(distance, player.x * 0.12);
   score = Math.floor(distance) + coins * 15;
 
-  if (frameCount % Math.max(40, 88 - Math.floor(speed * 6)) === 0) spawnObstacle();
-  if (frameCount % 70 === 0) spawnCollectible();
+  // Spawning
+  if (frameCount % 55 === 0) spawnObstacle();
+  if (frameCount % 75 === 0) spawnCollectible();
 
   // Obstacles
   for (let i = obstacles.length - 1; i >= 0; i--) {
     const o = obstacles[i];
-    o.x -= speed;
 
     const colliding =
       player.x < o.x + o.w &&
@@ -552,13 +635,12 @@ function update() {
       if (lives <= 0) gameOver();
     }
 
-    if (o.x + o.w < -30) obstacles.splice(i, 1);
+    if (o.x + o.w < cameraX - 40) obstacles.splice(i, 1);
   }
 
   // Collectibles
   for (let i = collectibles.length - 1; i >= 0; i--) {
     const c = collectibles[i];
-    c.x -= speed;
 
     if (!c.collected &&
         player.x < c.x + c.w &&
@@ -576,9 +658,10 @@ function update() {
       spawnHitParticles(c.x + 6, c.y + 6, '#ffd700', '#ffee88');
     }
 
-    if (c.x + c.w < -15 || c.collected) collectibles.splice(i, 1);
+    if (c.x + c.w < cameraX - 30 || c.collected) collectibles.splice(i, 1);
   }
 
+  // Particles
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx;
@@ -599,13 +682,14 @@ function draw() {
   collectibles.forEach(drawCollectible);
 
   particles.forEach(p => {
-    px(p.x, p.y, p.size || 3, p.size || 3, p.color);
+    px(p.x - cameraX, p.y, p.size || 3, p.size || 3, p.color);
   });
 
   if (invuln <= 0 || Math.floor(invuln / 4) % 2 === 0) {
-    drawFox(player.x, player.y - 24, player.animFrame, 1);
+    drawFox(player.x - cameraX, player.y - 24, player.animFrame, 1, player.facing);
   }
 
+  // HUD
   ctx.fillStyle = '#ffffff';
   ctx.font = '10px Courier New';
   ctx.fillText(`SCORE ${score}`, 8, 16);
@@ -630,13 +714,14 @@ function draw() {
     ctx.font = '12px Courier New';
     ctx.fillText('featuring Ani', GAME_WIDTH / 2, 92);
 
-    drawFox(GAME_WIDTH / 2 - 24, 110, 0, 3);
+    drawFox(GAME_WIDTH / 2 - 24, 110, 0, 3, 1);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '11px Courier New';
-    ctx.fillText('SPACE / TAP TO START', GAME_WIDTH / 2, 215);
+    ctx.fillText('ARROWS / A D  to move', GAME_WIDTH / 2, 200);
+    ctx.fillText('SPACE / TAP  to jump', GAME_WIDTH / 2, 218);
     ctx.font = '9px Courier New';
-    ctx.fillText('Hills • Platforms • Water pits • Stomp birds', GAME_WIDTH / 2, 235);
+    ctx.fillText('Manual control  •  Walls now block you', GAME_WIDTH / 2, 240);
     ctx.textAlign = 'left';
   }
 
