@@ -80,7 +80,7 @@ const player = {
   h: 24,
   vy: 0,
   onGround: true,
-  lockedGroundY: BASE_GROUND,   // the height she is currently anchored to
+  lockedGroundY: BASE_GROUND,
   animFrame: 0,
   animTimer: 0
 };
@@ -449,24 +449,20 @@ function update() {
   const under = getTerrainUnder(midX);
 
   // ========== ANCHORED GROUND LOGIC ==========
-  // The player is locked to lockedGroundY.
-  // She can only go UP by jumping and landing on a higher surface.
-  // Rising terrain is treated as a wall.
+  // Screen Y: smaller number = higher on screen
+  // Rising platform = groundUnder < lockedGroundY
 
   if (player.onGround) {
-    // Currently standing
-    if (groundUnder > player.lockedGroundY + 1) {
-      // Terrain rose under us → this is a wall. Stay at locked height.
-      // (we just don't update lockedGroundY or snap up)
+    if (groundUnder < player.lockedGroundY - 1) {
+      // Rising terrain (higher platform) → treat as wall, stay locked
       player.y = player.lockedGroundY;
       player.vy = 0;
     } else {
-      // Same height or lower → follow the ground
+      // Same height or lower (drop) → follow it
       player.y = groundUnder;
       player.lockedGroundY = groundUnder;
       player.vy = 0;
 
-      // Water check
       if (under && under.type === 'water' && invuln <= 0) {
         lives--;
         invuln = 50;
@@ -476,13 +472,12 @@ function update() {
       }
     }
   } else {
-    // In the air
+    // In the air - normal landing
     if (player.vy >= 0 && player.y >= groundUnder) {
-      // Landing
       player.y = groundUnder;
       player.vy = 0;
       player.onGround = true;
-      player.lockedGroundY = groundUnder;   // new anchor point
+      player.lockedGroundY = groundUnder;
 
       if (under && under.type === 'water' && invuln <= 0) {
         lives--;
@@ -492,11 +487,6 @@ function update() {
         if (lives <= 0) gameOver();
       }
     }
-  }
-
-  // Safety: if we somehow walked off into empty space
-  if (player.onGround && groundUnder > player.lockedGroundY + 40) {
-    player.onGround = false;
   }
 
   if (player.y > GAME_HEIGHT + 40) {
